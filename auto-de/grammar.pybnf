@@ -1,0 +1,53 @@
+<start> ::= popsize=<popsize>\nparams=Params(<memory>)\noptimizer=create_optimizer(<resize_strategy>,<update_strategy>,<archive>,popsize,params)
+
+<memory> ::= Ignore | shade.memory(<memory_size>) | lshade.memory(<memory_size>) | ilshade.memory(<memory_size>) | nshade.memory()
+
+<memory_size> ::= <int_gt_0> | popsize
+
+<resize_strategy> ::= Ignore | lpsr(pmin=round(popsize*<p_bt_0_1>)) | lpsr(pmin=4) 
+
+<update_strategy> ::= update_strategy(Ignore,<mutation>,<crossover>,<reparation>,<convergence_booster>)
+
+<convergence_booster> ::= Ignore | booster.imode(0.<int><int><int_gt_0>, <p_bt_0_1>, 0.<int><int_gt_0>)
+
+<mutation> ::= <mutation_op> | ensemble.either(<mutation_op>,<mutation_op>,<random_bool>) | ensemble.choice([<mutation_op>,<mutation_op>,<mutation_op>],<random_in_range3>)
+
+<mutation_op> ::= mutation.rand_1(<param>, include_archive=<bool>) | mutation.rand_2(<param>, include_archive=<bool>) | mutation.rand_to_best_1(<param>, include_archive=<bool>) | mutation.rand_to_best_2(<param>, include_archive=<bool>) | mutation.best_1(<param>, include_archive=<bool>) | mutation.best_2(<param>, include_archive=<bool>) | mutation.current_to_rand_1(<param>, include_archive=<bool>) | mutation.current_to_pbest_1(<param>,p=<popsize_p>, include_archive=<bool>) | mutation.current_to_pbestw_1(<param>,p=<popsize_p>, include_archive=<bool>) | mutation.current_to_ord_best_1(<param>,include_archive=<bool>) | mutation.current_to_ord_pbest_1(<param>,p=<popsize_p>, include_archive=<bool>) | mutation.cma()
+
+<crossover> ::= <crossover_op>  | ensemble.either(<crossover_op>,<crossover_op>,<random_bool>) | ensemble.choice([<crossover_op>,<crossover_op>,<crossover_op>],<random_in_range3>)
+
+<crossover_op> ::= crossover.all() | crossover.binomial(<param>) | crossover.binomial_with_cauchy_perturbation(<param>, scale=<p_bt_0_1>, jump_rate=0.<int>) | crossover.exponential(<param>) | crossover.multiple_exponential(<param>) | crossover.shuffled_exponential(<param>)
+
+<reparation> ::= reparation.middle_from_parent() | reparation.clip()
+    
+<popsize_p> ::= <p_bt_0_1> | 2/popsize | params.adaptative(linear.eval(low=<p>,high=<p>)) | params.adaptative(random.uniform(low=<p>,high=<p>))
+
+<random_bool> ::= params.adaptative(random.boolean(low=0.<int>,high=0.<int>,weighted=False,learning_rate=<learning_rate>)) | params.adaptative(random.boolean(low=0.<int>,high=0.<int>,weighted=True,learning_rate=<learning_rate>))
+
+<random_in_range3> ::= params.adaptative(random.range(3,pmin=<p_bt_0_1>,pmax=<p_bt_0_1>,learnable=<bool>))
+
+<param> ::= params.static(<p>) | params.adaptative(param_strategy(<p_bt_0_1>,<ad_param_gen_strategy>,<ad_repair_strategy>,<ad_param_learn_strategy>))
+
+<ad_param_gen_strategy> ::= jade.cauchy_get_strategy(<p_bt_0_1>) | jade.normal_get_strategy(<p_bt_0_1>)
+
+<ad_repair_strategy> ::= Ignore | ilshade.cauchy_repair_strategy() | ilshade.normal_repair_strategy() | jso.cauchy_repair_strategy() | jso.normal_repair_strategy() | lshadespa.cauchy_repair_strategy()
+
+<ad_param_learn_strategy> ::= jade.cauchy_learning_strategy(0.<int>) | jade.normal_learning_strategy(0.<int>) | shade.cauchy_learning_strategy() | shade.normal_learning_strategy() | lshade.cauchy_learning_strategy() | lshade.normal_learning_strategy() | ilshade.cauchy_learning_strategy() | ilshade.normal_learning_strategy() | dbshade.cauchy_learning_strategy() | nshade.cauchy_learning_strategy() | nshade.normal_learning_strategy()     
+
+<learning_rate> ::= Ignore | <p_bt_0_1>
+
+<p> ::= 0.<int> | 1
+
+<p_bt_0_1> ::= 0.<int_gt_0>
+
+<bool> ::= True | False
+
+<archive> ::= Ignore | archive(round(popsize*<int>.<int>), allow_resizing=<bool>)
+
+<popsize> ::= 50 | 100 | 150 | 200 | <int_gt_0>*ndims | 1<int>*ndims | 25*round(np.log(ndims)*np.sqrt(ndims))
+
+<bool> ::= True | False
+
+<int_gt_0> ::= 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9
+
+<int> ::= 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9
