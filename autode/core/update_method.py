@@ -65,6 +65,7 @@ class UpdateMethod:
             individuals=ctx.neighbors,
             ranking=ctx.ranking,
             archived=ctx.parent.archive.all() if ctx.parent.archive else [],
+            rng=ctx.random,
         )
 
     def update(
@@ -105,6 +106,7 @@ class UpdateMethod:
             individuals=ctx.population.get(),
             ranking=ctx.population.ranking(),
             archived=ctx.archive.all() if ctx.archive else [],
+            rng=ctx.random,
         )
         if self.convergence_booster is None:
             return

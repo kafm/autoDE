@@ -1,4 +1,5 @@
 import argparse
+from copy import deepcopy
 import yaml
 from distutils.util import strtobool
 '''
@@ -31,6 +32,8 @@ params = {'PARAMETERS': None,
           'GAUSS_SD': 0.01,
           'GRAMMAR_PROBS': None,
           }
+
+DEFAULT_PARAMS = deepcopy(params)
 
 
 def load_parameters(file_name=None):

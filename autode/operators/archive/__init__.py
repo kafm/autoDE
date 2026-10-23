@@ -1,6 +1,6 @@
 from dataclasses import dataclass, replace
 from typing import Optional, List
-import numpy as np
+from numpy.random import Generator
 from autode.core import Archive, Individual
 
 
@@ -18,6 +18,7 @@ def fixed(
 @dataclass
 class _ArchiveWithRandomRemoval(Archive):
     def __init__(self, maxsize: int, allow_resizing: bool = True):
+        super().__init__()
         self._maxsize: Optional[int] = maxsize
         self._allow_resizing = allow_resizing
         self._items: List[Individual] = []
@@ -34,5 +35,5 @@ class _ArchiveWithRandomRemoval(Archive):
         if new_size and self._allow_resizing:
             self._maxsize = new_size
         if self._maxsize < len(self._items):
-            indices = np.random.choice(len(self._items), size=self._maxsize)
+            indices = self._rng.choice(len(self._items), size=self._maxsize)
             self._items = [self._items[i] for i in indices]

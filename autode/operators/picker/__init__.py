@@ -6,4 +6,5 @@ def default() -> _PickerCallback:
         individuals=ctx.neighbors,
         ranking=ctx.ranking,
         archived=ctx.parent.archive.all() if ctx.parent.archive else [], 
+        rng=ctx.random
     )

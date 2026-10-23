@@ -1,5 +1,6 @@
 from typing import List, Callable, Optional, Dict, Tuple
 import numpy as np
+from numpy.random import Generator
 from autode.core import (
     ParamGenerator,
     ParamValue,
@@ -21,7 +22,7 @@ class Random:
             id=id,
             initial_value=None,
             memorizable=False,
-            get_strategy=lambda _: np.random.uniform(low=low, high=high),
+            get_strategy=lambda ctx,_: ctx.random.uniform(low=low, high=high),
         )
 
     @staticmethod
@@ -39,7 +40,7 @@ class Random:
             id=id,
             initial_value=p,
             memorizable=True,
-            get_strategy=lambda p: True if np.random.uniform() < p else False,
+            get_strategy=lambda ctx, p: True if ctx.random.uniform() < p else False,
             learning_strategy=(
                 _BooleanLearning(_low, _high, learning_rate, weighted)
                 if learning_rate and learning_rate > 0
@@ -62,7 +63,7 @@ class Random:
             id=id,
             initial_value=_p,
             memorizable=True,
-            get_strategy=lambda _: r.get(),
+            get_strategy=lambda ctx, _: r.get(),
             learning_strategy=r.learn if learnable else None,
         )
 
@@ -88,6 +89,7 @@ class _Range:
         self._unsub_gen_start = events.subscribe(
             GENERATION_START_EVT, self._restart_generation
         )
+        self._rng: Optional[Generator] = None
 
     def get(self) -> int:
         if self._generated is None:
@@ -99,19 +101,20 @@ class _Range:
         allocation = np.array([]) if self._gen_size < self._size else self._values.copy()
         remaining = self._gen_size - len(allocation) 
         if remaining > 0: 
-            remaining_allocation = np.random.choice(self._values, p=self._p, size=remaining)
+            remaining_allocation = self._rng.choice(self._values, p=self._p, size=remaining)
             allocation = np.concatenate((allocation, remaining_allocation))
-        np.random.shuffle(allocation)
+        self._rng.shuffle(allocation)
         return allocation
         
 
     def _restart_generation(self, ctx: GenerationContext):
+        self._rng = ctx.random
         self._gen_size = ctx.popsize
         self._gen_index = -1
         self._generated = None
 
     def learn(
-        self, _: ParamValue, results: List[ParamPerformance]
+        self, ctx: GenerationContext, _: ParamValue, results: List[ParamPerformance]
     ) -> ParamValueLearned:
         best, inds = self._get_groups(results)
         dops = []
@@ -165,7 +168,7 @@ class _BooleanLearning:
         self._weighted = weighted
 
     def __call__(
-        self, old_p: ParamValue, results: List[ParamPerformance]
+        self, ctx: GenerationContext, old_p: ParamValue, results: List[ParamPerformance]
     ) -> ParamValueLearned:
         p_true = 0
         total = 0

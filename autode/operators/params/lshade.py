@@ -1,5 +1,6 @@
 from typing import Callable, Dict, Optional, List
 import numpy as np
+from numpy.random import Generator
 from autode.core import (
     ParamGenerator,
     ParamPerformance,
@@ -46,11 +47,11 @@ class LShade(object):
 
     @staticmethod
     def cauchy_get_strategy(scale: float = 0.1) -> ParamGetStrategy:
-        return lambda loc: generate_cauchy_bt_0_1(loc=loc, scale=scale)
+        return lambda ctx, loc: generate_cauchy_bt_0_1(rng=ctx.random, loc=loc, scale=scale)
 
     @staticmethod
     def cauchy_learning_strategy() -> ParamLearningStrategy:
-        def callback(loc: ParamValue, results: List[ParamPerformance]):
+        def callback(_, loc: ParamValue, results: List[ParamPerformance]):
             values = []
             weights = []
             for result in results:
@@ -68,26 +69,25 @@ class LShade(object):
 
     @staticmethod
     def normal_get_strategy(scale: float = 0.1) -> ParamGetStrategy:
-        return lambda loc: np.clip(np.random.normal(loc=loc, scale=scale), 0, 1)
+        return lambda ctx, loc: np.clip(ctx.random.normal(loc=loc, scale=scale), 0, 1)
 
     @staticmethod
     def normal_learning_strategy() -> ParamLearningStrategy:
-        def callback(loc: ParamValue, results: List[ParamPerformance]):
+        def callback(_, loc: ParamValue, results: List[ParamPerformance]):
             values = []
             weights = []
             for result in results:
                 if result.individual.improved:
                     values.append(result.value)
                     weights.append(abs(result.individual.improvement))
-            value = loc
-            think_fast = False
-            if len(values) > 0:
-                if max(values) == 0:
-                    value = 0
-                    think_fast = True
-                else:
-                    value = np.sum(np.multiply(values, normalize_values(weights))) #np.average(values, weights=normalize_values(weights)
-            return ParamValueLearned(value=value, think_fast=think_fast)
+            if values and max(values) == 0:
+                return ParamValueLearned(value=0, think_fast=True)
+            value = (
+                lehmer_mean(values, weights=normalize_values(weights))
+                if len(values) > 0
+                else loc
+            )
+            return ParamValueLearned(value=value, think_fast=False)
 
         return callback
 
@@ -97,6 +97,10 @@ class _LShadeMemory(ParamMemory):
         self._size = size
         self._entries = [ParamMemoryEntry() for _ in range(size)]
         self._k = 0
+        self._rng: Optional[Generator] = None
+
+    def start_memorization(self, ctx: GenerationContext, params: List[AdaptativeParam]):
+        self._rng = ctx.random
 
     def end_memorization(self, ctx: GenerationContext, params: List[AdaptativeParam]):
         if ctx.population.has_improvements():
@@ -124,5 +128,5 @@ class _LShadeMemory(ParamMemory):
 
     def get(self, individuals: List[Individual]) -> Dict[int, ParamMemoryEntry]:
         size = len(individuals)
-        indices = np.random.randint(low=0, high=self._size, size=size)
+        indices = self._rng.integers(low=0, high=self._size, size=size)
         return {individuals[i].id: self._entries[indices[i]] for i in range(size)}

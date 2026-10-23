@@ -10,7 +10,6 @@ from autode.core import (
     PubSub,
     GENERATION_START_EVT,
 )
-import numpy as np
 from .lshade import LShade
 from .common import lehmer_mean, normalize_values
 
@@ -43,7 +42,7 @@ class LShadeSpa(object):
     @staticmethod
     def normal_learning_strategy() -> ParamLearningStrategy:
         """Match the weighted Lehmer CR update in the authors' MATLAB code."""
-        def callback(loc: ParamValue, results: List[ParamPerformance]):
+        def callback(_, loc: ParamValue, results: List[ParamPerformance]):
             successful = [r for r in results if r.individual.improved]
             if not successful:
                 return ParamValueLearned(value=loc, think_fast=False)
@@ -64,7 +63,7 @@ class LShadeSpa(object):
             g = ctx.parent.num_evals()
             max_g = ctx.parent.max_evals()
             if g < 0.5 * max_g:
-                return 0.45 + 0.1 * np.random.rand()
+                return 0.45 + 0.1 * ctx.random.random()
             return value
 
         return callback

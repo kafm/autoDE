@@ -28,7 +28,8 @@ class SqpWrapper:
             minimize(ev_wrapped,
                 individual.pos,
                 tol=1e-8,
-                method="L-BFGS-B",
+                # IMODE Section III-D specifies sequential quadratic programming.
+                method="SLSQP",
                 bounds=Bounds(lb=lb, ub=ub)#,
                 #options={"maxfun": fes},
             )

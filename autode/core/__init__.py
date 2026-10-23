@@ -16,6 +16,7 @@ def create_optimizer(
     resize_strategy: Optional[ResizePopulationCallback] = None,
     params: Optional[Params] = None,
     archive: Optional[Archive] = None,
+    seed: Optional[int] = None
 ) -> Callable[
     [FitnessFunction, Tuple, NumDimensions], Tuple[List[float], float]
 ]:
@@ -28,4 +29,5 @@ def create_optimizer(
         events=events,
         params=params,
         archive=archive,
+        seed=seed
     ).search

@@ -1,29 +1,24 @@
 import numpy as np
-from typing import List
 from autode.core import InitPopulationCallback, SearchContext, Individual, Population
 
 
-def create_individual(ctx: SearchContext, pos: List[float], index: int) -> Individual:
+def create_individual(ctx: SearchContext, index: int) -> Individual:
+    pos = ctx.random.uniform(low=ctx.lb(), high=ctx.ub(), size=ctx.ndims())
     fit = ctx.evaluate(pos)
     return Individual(pos=pos, fit=fit, index=index,id=index)
 
 
-def random(popsize: int, seed=None) -> InitPopulationCallback:
+def random(popsize: int) -> InitPopulationCallback:
     def callback(ctx: SearchContext) -> Population:
-        rnd = np.random if seed is None else np.random.RandomState(seed)
         return Population([
-            create_individual(
-                ctx, 
-                rnd.uniform(low=ctx.lb(), high=ctx.ub(), size=ctx.ndims()),
-                i
-            )
+            create_individual(ctx, i)
             for i in range(popsize)
         ])
 
     return callback
 
 
-def random_batch(popsize: int, seed=None) -> InitPopulationCallback:
+def random_batch(popsize: int) -> InitPopulationCallback:
     """Generate positions together and evaluate the initial population once.
 
     population_size lets the optimizer infer a generation-based evaluation
@@ -38,8 +33,7 @@ def random_batch(popsize: int, seed=None) -> InitPopulationCallback:
             raise ValueError("Evaluation budget must be initialized before batch initialization")
         if max_evals - ctx.num_evals() < popsize:
             raise ValueError("Evaluation budget is smaller than the initial population")
-        rnd = np.random if seed is None else np.random.RandomState(seed)
-        positions = rnd.uniform(
+        positions = ctx.random.uniform(
             low=ctx.lb(), high=ctx.ub(), size=(popsize, ctx.ndims())
         )
         fits = ctx.evaluate_many(positions)

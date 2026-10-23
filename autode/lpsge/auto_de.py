@@ -13,7 +13,7 @@ from functools import partial
 import numpy as np
 import time
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Callable, List, Optional
 from autode.core.stop_condition import StopCondition
 from autode.lpsge.psgewr import PSGEWR, EvalFn
@@ -58,7 +58,8 @@ class _Optimizer:
             archive=archive,
             events=self._events,
             params=params,
-            stop_condition=self._stop_condition
+            stop_condition=self._stop_condition,
+            seed=self._seed
         )
         def callback(fit_fn, lb, ub, ndims):
             res = optimizer(fit_fn, lb, ub, ndims)
@@ -68,13 +69,7 @@ class _Optimizer:
         return callback
     
     def _get_init_strategy(self, popsize):
-        return ops.population.init.random(popsize, seed=self._seed)
-
-
-class _Picker:
-    def __init__(self, events):
-        self.default = ops.picker.default
-        self.fode = partial(ops.picker.fode, events=events)
+        return ops.population.init.random(popsize)
 
 
 class _Mutation:
@@ -134,7 +129,7 @@ def get_locals(stop_condition, ndims, _events = None, init_strategy: str = "rand
         "popsize": None,
         "lpsr": ops.population.lpsr,
         "archive": ops.archive.fixed,
-        "picker": _Picker(events=events),
+        "picker": ops.picker.default,
         "mutation": _Mutation(events=events),
         "crossover": _Croosover(events=events),
         "reparation": _Reparation(events=events),
@@ -147,7 +142,6 @@ def get_locals(stop_condition, ndims, _events = None, init_strategy: str = "rand
         "shade": ops.params.shade,
         "ilshade": ops.params.ilshade,
         "jso": ops.params.jso,
-        "fode": ops.params.fode,
         "lshade": ops.params.lshade,
         "dbshade": ops.params.dbshade,
         "nshade": ops.params.nshade,
@@ -157,8 +151,7 @@ def get_locals(stop_condition, ndims, _events = None, init_strategy: str = "rand
 
 def auto_de_eval(individual: str, problem: ProblemInstance, invalid_fitness: float=float("inf"))->float:
     fit = None
-    #start_time = time.time()
-    locals = get_locals(stop_condition=problem.stop_condition, ndims=problem.ndims)
+    locals = get_locals(stop_condition=problem.stop_condition, ndims=problem.ndims, seed=problem.seed)
     try:
         parts = individual.split("\\n")
         for part in parts:
@@ -169,11 +162,23 @@ def auto_de_eval(individual: str, problem: ProblemInstance, invalid_fitness: flo
         print(f"Failed: {repr(e)}")
         print(individual)
         fit = invalid_fitness
-    #print("algo run took %s seconds" % (time.time() - start_time))
     return fit
 
-def auto_de_evals(individual: str, problems: List[ProblemInstance])->List[float]:
-    return [auto_de_eval(individual, problem) for problem in problems]
+def auto_de_evals(
+    individual: str, problems: List[ProblemInstance], seed: Optional[int] = None
+)->List[float]:
+    if seed is None:
+        return [auto_de_eval(individual, problem) for problem in problems]
+    results = []
+    for index, problem in enumerate(problems):
+        entropy = [seed, index]
+        if problem.seed is not None:
+            entropy.append(problem.seed)
+        run_seed = int(np.random.SeedSequence(entropy).generate_state(
+            1, dtype=np.uint64
+        )[0])
+        results.append(auto_de_eval(individual, replace(problem, seed=run_seed)))
+    return results
 
 @dataclass
 class ProblemInstance:
@@ -184,6 +189,7 @@ class ProblemInstance:
    global_optimum: float
    stop_condition: StopCondition
    name: Optional[str] = None
+   seed: Optional[int] = None
 
 def search_optimizer(
     problems: List[ProblemInstance],   
@@ -192,7 +198,8 @@ def search_optimizer(
     pmin: int = 2,
     elitesize: int = 2,
     rmethod:str ="kruns", 
-    nruns: int = 5
+    nruns: int = 5,
+    seed: Optional[int] = None
 ):
     start_time = time.time()
     print(f"Starting search at {start_time}")
@@ -206,14 +213,15 @@ def search_optimizer(
         pmin=pmin,
         elitesize=elitesize,
         rmethod=rmethod, 
-        nruns=nruns
+        nruns=nruns,
+        seed=seed
     ).run()
     res["runtime"] = time.time() - start_time
     return res
 
 
 def run_auto_de(individual: str, problem: ProblemInstance, invalid_fitness: float=float("inf"))->float:
-    locals = get_locals(stop_condition=problem.stop_condition, ndims=problem.ndims)
+    locals = get_locals(stop_condition=problem.stop_condition, ndims=problem.ndims, seed=problem.seed)
     parts = individual.split("\\n")
     for part in parts:
         cpart = compile(part, f'algo{uuid.uuid4()}', "exec", dont_inherit=True)

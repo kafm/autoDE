@@ -6,7 +6,7 @@ from autode.core import (
     ParamLearningStrategy,
     ParamGetStrategy,
     ParamValue,
-    ParamValueLearned
+    ParamValueLearned,
 )
 from .common import generate_cauchy_bt_0_1, lehmer_mean
 
@@ -39,40 +39,40 @@ class Jade(object):
 
     @staticmethod
     def cauchy_get_strategy(scale: float = 0.1) -> ParamGetStrategy:
-        return lambda loc: generate_cauchy_bt_0_1(loc=loc, scale=scale)
+        return lambda ctx, loc: generate_cauchy_bt_0_1(
+            rng=ctx.random, loc=loc, scale=scale
+        )
 
     @staticmethod
     def cauchy_learning_strategy(learning_rate: float = 0.1) -> ParamLearningStrategy:
-        def callback(loc: ParamValue, results: List[ParamPerformance]):
+        def callback(_, loc: ParamValue, results: List[ParamPerformance]):
             improved_values = [
                 result.value for result in results if result.individual.improved
             ]
             value = (
-                (1 - learning_rate) * loc + learning_rate * lehmer_mean(
-                    improved_values
-                )
-                if len(improved_values) > 0 else 
-                (1 - learning_rate) * loc + learning_rate * .5
+                (1 - learning_rate) * loc + learning_rate * lehmer_mean(improved_values)
+                if len(improved_values) > 0
+                else (1 - learning_rate) * loc + learning_rate * 0.5
             )
             return ParamValueLearned(value=value, think_fast=False)
-            
+
         return callback
 
     @staticmethod
     def normal_get_strategy(scale: float = 0.1) -> ParamGetStrategy:
-        return lambda loc: np.clip(np.random.normal(loc=loc, scale=scale),0,1)
+        return lambda ctx, loc: np.clip(ctx.random.normal(loc=loc, scale=scale), 0, 1)
 
     @staticmethod
     def normal_learning_strategy(learning_rate: float = 0.1) -> ParamLearningStrategy:
-        def callback(loc: ParamValue, results: List[ParamPerformance]):
+        def callback(_, loc: ParamValue, results: List[ParamPerformance]):
             improved_values = [
                 result.value for result in results if result.individual.improved
             ]
             value = (
                 (1 - learning_rate) * loc + learning_rate * np.mean(improved_values)
-                if len(improved_values) > 0 else 
-                (1 - learning_rate) * loc + learning_rate * .5
+                if len(improved_values) > 0
+                else (1 - learning_rate) * loc + learning_rate * 0.5
             )
             return ParamValueLearned(value=value, think_fast=False)
-        
+
         return callback

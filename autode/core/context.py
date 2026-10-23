@@ -3,6 +3,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field, InitVar
 import numbers
 import numpy as np
+from numpy.random import Generator
 from .population import Individual, Archive, Picker, Population, DefaultPicker
 
 
@@ -19,6 +20,7 @@ class SearchContext:
         lb: Union[float, List[float]],
         ub: Union[float, List[float]],
         ndims: int,
+        rng: Generator
     ):
         self._eval_fn = eval_fn
         self._stop_condition = stop_condition
@@ -32,10 +34,9 @@ class SearchContext:
         self._max_gen = max_gen
         self._max_evals = max_evals
         self._ndims = ndims
+        self._rng = rng
         self._lb = [lb for _ in range(ndims)] if isinstance(lb, numbers.Number) else lb
         self._ub = [ub for _ in range(ndims)] if isinstance(ub, numbers.Number) else ub
-        # if not stop_condition.valid():
-        #     raise Exception("No stop condition definition set")
         if len(self._ub) != len(self._lb) or len(self._ub) != ndims:
             raise Exception(
                 "Lower or Upper bounds size don't match with the number of dimensions"
@@ -124,6 +125,10 @@ class SearchContext:
             raise f"Lower or Upper bounds size don't match with the number of dimensions"
         return _lb, _ub
 
+    @property
+    def random(self)->Generator:
+        return self._rng
+
 @dataclass
 class GenerationContext:
     population: Population
@@ -139,7 +144,8 @@ class GenerationContext:
         self.picker = DefaultPicker(
             individuals=self.population.get(),
             ranking=self.population.ranking(),
-            archived=self.archive.all() if self.archive else []
+            archived=self.archive.all() if self.archive else [],
+            rng=self.random,
         )
 
     def evaluate(self, solution: List[float]) -> float:
@@ -147,6 +153,11 @@ class GenerationContext:
 
     def evaluate_many(self, solutions: List[List[float]]) -> np.ndarray:
         return self.parent.evaluate_many(solutions)
+
+    @property
+    def random(self)->Generator:
+        return self.parent.random
+
 
 
 @dataclass
@@ -164,11 +175,20 @@ class UpdateContext:
         self.picker = picker_impl(self) 
 
 
+    @property
+    def random(self)->Generator:
+        return self.parent.random
+
+
 @dataclass
 class SelectionContext:
     individual: Individual
     trial: Individual
     parent: GenerationContext
+
+    @property
+    def random(self)->Generator:
+        return self.parent.random
 
 
 InitPopulationCallback = Callable[[SearchContext], Population]

@@ -1,4 +1,6 @@
 from typing import Dict, List, Optional, Callable
+
+from numpy.random import Generator
 from autode.core import (
     ParamMemory,
     ParamMemoryEntry,
@@ -48,7 +50,7 @@ class IlShade(object):
 
     @staticmethod
     def cauchy_get_strategy(scale: float = 0.1) -> ParamGetStrategy:
-        return lambda loc: generate_cauchy_bt_0_1(loc=loc, scale=scale)
+        return lambda ctx, loc: generate_cauchy_bt_0_1(rng=ctx.random, loc=loc, scale=scale)
     
     @staticmethod
     def cauchy_repair_strategy() -> ParamRepairStrategy:
@@ -66,7 +68,7 @@ class IlShade(object):
 
     @staticmethod
     def cauchy_learning_strategy() -> ParamLearningStrategy:
-        def callback(loc: ParamValue, results: List[ParamPerformance]):
+        def callback(_, loc: ParamValue, results: List[ParamPerformance]):
             values = []
             weights = []
             for result in results:
@@ -84,7 +86,7 @@ class IlShade(object):
 
     @staticmethod
     def normal_get_strategy(scale: float = 0.1) -> ParamGetStrategy:
-        return lambda loc: np.clip(np.random.normal(loc=loc, scale=scale), 0, 1)
+        return lambda ctx, loc: np.clip(ctx.random.normal(loc=loc, scale=scale), 0, 1)
     
     @staticmethod
     def normal_repair_strategy() -> ParamRepairStrategy:
@@ -100,7 +102,7 @@ class IlShade(object):
 
     @staticmethod
     def normal_learning_strategy() -> ParamLearningStrategy:
-        def callback(loc: ParamValue, results: List[ParamPerformance]):
+        def callback(_,loc: ParamValue, results: List[ParamPerformance]):
             values = []
             weights = []
             for result in results:
@@ -132,6 +134,11 @@ class _IlShadeMemory(ParamMemory):
             for i in range(size)
         ]
         self._k = 0
+        self._rng: Optional[Generator] = None
+
+    def start_memorization(self, ctx: GenerationContext, params: List[AdaptativeParam]):
+        self._rng = ctx.random
+    
 
     def end_memorization(self, ctx: GenerationContext, params: List[AdaptativeParam]):
         if ctx.population.has_improvements():
@@ -157,7 +164,7 @@ class _IlShadeMemory(ParamMemory):
 
     def get(self, individuals: List[Individual]) -> Dict[int, ParamMemoryEntry]:
         size = len(individuals)
-        indices = np.random.randint(low=0, high=self._size, size=size)
+        indices = self._rng.integers(low=0, high=self._size, size=size)
         return {individuals[i].id: self._entries[indices[i]] for i in range(size)}
 
 class _FixedParamMemoryEntry(ParamMemoryEntry):

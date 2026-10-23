@@ -15,13 +15,6 @@ def lpsr(
         new_popsize = round(
             (pmin - pinit)/ctx.parent.max_evals() * ctx.parent.num_evals() + pinit
         )
-        #new_population_size = round((4 - init_size) / max_evals * num_evals + init_size)
-        # round(
-        #     population.init_size()
-        #     - (ctx.parent.num_evals() / ctx.parent.max_evals())
-        #     * (population.init_size() - pmin)
-        # )
-        #print(f"New popsize {new_popsize}")
         if new_popsize < pmin:
             new_popsize = pmin
         if new_popsize == ctx.popsize:

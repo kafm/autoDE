@@ -36,7 +36,7 @@ class DbShade(object):
 
     @staticmethod
     def cauchy_learning_strategy() -> ParamLearningStrategy:
-        def callback(loc: ParamValue, results: List[ParamPerformance]):
+        def callback(_, loc: ParamValue, results: List[ParamPerformance]):
             values = []
             weights = []
             for result in results:

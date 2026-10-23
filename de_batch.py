@@ -234,7 +234,7 @@ def ede(fit_fn, lb, ub, ndims, popsize, stop_condition, f=.5, cr=.5, include_arc
         init_strategy=ops.population.init.random_batch(popsize),
         update_strategy=[
             UpdateMethod(
-                mutation=ops.mutation.current_to_ord_best_y(
+                mutation=ops.mutation.current_to_ord_best(
                     params.adaptative(ops.params.jade.cauchy(initial_value=f)),
                     include_archive=include_archive
                 ),
@@ -330,7 +330,7 @@ def elshade(fit_fn, lb, ub, ndims, popsize, stop_condition, f=.5, cr=.5, h=5, p=
                         p=p,
                         include_archive=include_archive
                     ),
-                    ops.mutation.current_to_ord_best_y(
+                    ops.mutation.current_to_ord_best(
                         params.adaptative(ops.params.jade.cauchy(initial_value=f)),
                         include_archive=include_archive
                     ), 
@@ -572,14 +572,14 @@ def f272017(ndims):
     return F272017(ndims).evaluate, -100, 100
 
 
-ndims = 50
+ndims = 30
 popsize = ndims*18 # 6*ndims*ndims #imode 6*ndims**2 100 shade #ndims*18 #ndims*12  #ilshade=ndims*12 #lshade=round(ndims*18)   #jso=int(25*np.log(ndims)*np.sqrt(ndims)) #40
 max_gen = 1500
 max_evals = ndims*10000
 #max_gen = 1500
 #problem, lb, ub = f272017(ndims)
-problem, lb, ub = f27, -100, 100
-bias = 2700
+problem, lb, ub = f3, -100, 100
+bias = 300
 
 start_time = time.time()
 

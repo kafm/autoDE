@@ -1,8 +1,12 @@
 from typing import Callable, Optional, Dict, List, Any
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from urllib.parse import quote
 import os, csv, time
+import tempfile
 import pandas as pd
 from autode.lpsge.auto_de import ProblemInstance, search_optimizer, run_auto_de
+from autode.experiment.experiment import Experiment as EvaluationExperiment
+from autode.experiment.seeds import load_seed_schedule
 
 @dataclass
 class ExperimentRunResult:
@@ -75,14 +79,33 @@ class ExperimentRunnable:
     def _save_results(self, data: List[Dict[str, Any]]):
         if len(data) == 0:
             return
+        if self._headers is None:
+            self._headers = list(data[0].keys())
+        added_headers = [key for item in data for key in item if key not in self._headers]
+        if added_headers and not self._is_file_empty():
+            self._headers += list(dict.fromkeys(added_headers))
+            with open(self._filename, newline="") as file:
+                old_rows = list(csv.DictReader(file))
+            temporary_path = None
+            try:
+                with tempfile.NamedTemporaryFile(
+                    mode="w", newline="", delete=False,
+                    dir=os.path.dirname(os.path.abspath(self._filename)),
+                ) as file:
+                    temporary_path = file.name
+                    writer = csv.DictWriter(file, fieldnames=self._headers)
+                    writer.writeheader()
+                    writer.writerows(old_rows)
+                os.replace(temporary_path, self._filename)
+            finally:
+                if temporary_path and os.path.exists(temporary_path):
+                    os.unlink(temporary_path)
         with open(self._filename, mode=self._mode, newline="") as file:
-            writer = csv.writer(file)
-            if self._headers is None:
-                self._headers = list(data[0].keys()) 
-                if self._mode == "w":
-                    writer.writerow(self._headers)
-                    self._mode = "a"
-            writer.writerows([list(item.values()) for item in data]) 
+            writer = csv.DictWriter(file, fieldnames=self._headers)
+            if self._mode == "w":
+                writer.writeheader()
+                self._mode = "a"
+            writer.writerows(data)
 
     def _init_csv(self):
         if self._is_file_empty():
@@ -98,7 +121,7 @@ class ExperimentRunnable:
         with open(self._filename, mode="r") as file:
             reader = csv.reader(file)
             rows = list(reader)
-        if rows is None or len(rows) < 2:
+        if not rows:
                 return 
         self._headers = rows[0]
 
@@ -109,7 +132,7 @@ class ExperimentState:
     problems: Optional[List[ProblemInstance]] = None 
     test_algo: Optional[str] = None 
     train_experiment: Optional[ExperimentRunnable] = None
-    test_experiment: Optional[ExperimentRunnable] = None
+    test_experiment: Optional[EvaluationExperiment] = None
 
 class Experiment:
     def __init__(
@@ -144,13 +167,18 @@ class Experiment:
 
         
     def _train(self, state:ExperimentState):
+        seeds = load_seed_schedule(
+            f"{self._name}_train.csv", [state.traning_set], 1
+        )
+        seed = seeds[state.traning_set][0]
         def experiment_callback()->ExperimentRunResult:
             res = search_optimizer(
                 problems=state.problems,
                 parameters_file=self._parameters_file, 
                 popsize=self._popsize,
                 nruns=self._nruns,
-                elitesize=self._elitesize
+                elitesize=self._elitesize,
+                seed=seed
             )
             return ExperimentRunResult(data=[{
                 "problem": state.traning_set,
@@ -161,11 +189,11 @@ class Experiment:
                 "runtime(g)": res["num_g"],
                 "runtime(fes)": res["num_evals"],
                 "pinit": self._popsize,
+                "seed": seed,
             }], done=True)
-        if  state.train_experiment is None:
-            state.train_experiment = ExperimentRunnable(
-                filename=f"{self._name}_train.csv",
-                experiment_callback=experiment_callback)
+        state.train_experiment = ExperimentRunnable(
+            filename=f"{self._name}_train.csv",
+            experiment_callback=experiment_callback)
         algo_cnt = state.train_experiment.count_by(lambda df: df["problem"].eq(state.traning_set).sum())
         if algo_cnt == 0:
             print(f"[{self._name}] Traning for {state.traning_set}")
@@ -177,31 +205,26 @@ class Experiment:
         state.test_algo = algo
 
     def _test(self, state:ExperimentState):
-        def experiment_callback()->ExperimentRunResult:
-            if state.run_cnt/len(state.problems) >= self._max_experiments:
-                print(f"Reached max experiments threshold runs of {self._max_experiments} for {state.traning_set} with num runs = {state.run_cnt/len(state.problems)}")
-                return ExperimentRunResult(data=None, done=True)
-            data = []
-            for problem in state.problems:
-                problem_name = state.traning_set if problem.name is None else problem.name
-                solution, fitness = run_auto_de(state.test_algo, problem)
-                data.append({
-                "algo": "AUTO",
-                "problem_set": state.traning_set, 
-                "problem": problem_name,
-                "ndims": problem.ndims,
-                "solution": solution,
-                "fit": fitness
-                })
-                state.run_cnt += 1
-            return ExperimentRunResult(data=data, done=False)
+        problems = {}
+        for problem in state.problems:
+            name = state.traning_set if problem.name is None else problem.name
+            key = f"{name}_{problem.ndims}D"
+            if key in problems:
+                raise ValueError(f"Duplicate post-training problem: {key}")
+            problems[key] = problem
 
-        if state.test_experiment is None:
-            state.test_experiment = ExperimentRunnable(
-                filename=f"{self._name}_test.csv",
-                experiment_callback=experiment_callback
-            )
-        state.run_cnt = state.test_experiment.count_by(lambda df:  df["problem_set"].eq(state.traning_set).sum())
+        phenotype = state.test_algo
+        def evaluate(problem, *, seed):
+            return run_auto_de(phenotype, replace(problem, seed=seed))
+
+        # Each training set has its own progress and persisted seed schedule.
+        training_set = quote(str(state.traning_set), safe="")
+        state.test_experiment = EvaluationExperiment(
+            filename=f"{self._name}_{training_set}_test.csv",
+            algos={"AUTO": evaluate},
+            problems=problems,
+            max_experiments=self._max_experiments,
+        )
         print(f"[{self._name}] Testing for {state.traning_set}")
         state.test_experiment.run()
 

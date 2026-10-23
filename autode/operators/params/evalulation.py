@@ -15,7 +15,7 @@ class Evaluation:
     def linear(events: PubSub, low: float = 0, high: float = 1) -> Callable[[int], ParamGenerator]:
         generator = _EvaluationLinear(events, low=low, high=high)
         return lambda id: ParamGenerator(
-            id=id, initial_value=None, memorizable=False, get_strategy=lambda _: generator.get()
+            id=id, initial_value=None, memorizable=False, get_strategy=lambda _,__: generator.get()
         )
 
 

@@ -234,7 +234,7 @@ def ede(fit_fn, lb, ub, ndims, popsize, stop_condition, f=.5, cr=.5, include_arc
         init_strategy=ops.population.init.random(popsize),
         update_strategy=[
             UpdateMethod(
-                mutation=ops.mutation.current_to_ord_best_y(
+                mutation=ops.mutation.current_to_ord_best(
                     params.adaptative(ops.params.jade.cauchy(initial_value=f)),
                     include_archive=include_archive
                 ),
@@ -330,7 +330,7 @@ def elshade(fit_fn, lb, ub, ndims, popsize, stop_condition, f=.5, cr=.5, h=5, p=
                         p=p,
                         include_archive=include_archive
                     ),
-                    ops.mutation.current_to_ord_best_y(
+                    ops.mutation.current_to_ord_best(
                         params.adaptative(ops.params.jade.cauchy(initial_value=f)),
                         include_archive=include_archive
                     ), 

@@ -67,6 +67,7 @@ class AdaptativeParam(Param):
         previous_value: Optional[ParamValue] = None,
     ) -> ParamValueLearned:
         return self._generator.get_learnings(
+            self._ctx,
             self._value if previous_value is None else previous_value,
             values if values else self._values.values(),
         )
@@ -98,9 +99,9 @@ class AdaptativeParam(Param):
 
 
 ParamLearningStrategy = Callable[
-    [ParamValue, List[ParamPerformance]], ParamValueLearned
+    [GenerationContext, ParamValue, List[ParamPerformance]], ParamValueLearned
 ]
-ParamGetStrategy = Callable[..., ParamValue]
+ParamGetStrategy = Callable[[GenerationContext, ParamValue], ParamValue]
 ParamRepairStrategy = Callable[
     [GenerationContext, ParamValue], ParamValue
 ]  # TODO should pass search context
@@ -196,17 +197,17 @@ class ParamGenerator:
         self, ctx: GenerationContext, value: ParamValue, think_fast: bool
     ) -> ParamValue:
         return self._repair(
-            ctx, value if think_fast else self.get_strategy(value)
+            ctx, value if think_fast else self.get_strategy(ctx, value)
         )
 
     def _repair(self, ctx: GenerationContext, value: ParamValue) -> ParamValue:
         return self.repair_strategy(ctx, value) if self.repair_strategy else value
 
     def get_learnings(
-        self, value: ParamValue, colllection: Dict[int, ParamPerformance]
+        self, ctx: GenerationContext, value: ParamValue, colllection: Dict[int, ParamPerformance]
     ) -> ParamValueLearned:
         if self.learning_strategy:
-            return self.learning_strategy(value, colllection)
+            return self.learning_strategy(ctx, value, colllection)
         return ParamValueLearned(value=self.initial_value, think_fast=False)
 
 

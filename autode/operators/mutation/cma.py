@@ -1,4 +1,6 @@
 from typing import List, Optional, cast, Any, Dict, Tuple
+
+from numpy.random import Generator
 from autode.core import (
     MutationCallback,
     PubSub,
@@ -34,8 +36,9 @@ class CmaWrapper:
         if self._optimizer is None:
             self._optimizer = Cma(
                 population_size= ctx.popsize,
-                mean=np.random.rand(ctx.parent.ndims()),
-                sigma=self._initial_sigma
+                mean=ctx.random.random(ctx.parent.ndims()),
+                sigma=self._initial_sigma,
+                rng=ctx.random
             )
         elif self._optimizer._popsize != ctx.popsize:
             self._optimizer = Cma(
@@ -43,6 +46,7 @@ class CmaWrapper:
                 mean=self._optimizer._mean,
                 sigma=abs(self._optimizer._sigma) if self._optimizer._sigma != 0 else 1e-8,
                 cov=self._optimizer._C,
+                rng=ctx.random
             )
 
 """
@@ -59,7 +63,7 @@ class Cma:
         self,
         mean: np.ndarray,
         sigma: float,
-        seed: Optional[int] = None,
+        rng: Generator,
         population_size: Optional[int] = None,
         cov: Optional[np.ndarray] = None,
     ):
@@ -164,15 +168,12 @@ class Cma:
         self._sigma = sigma
         self._D: Optional[np.ndarray] = None
         self._B: Optional[np.ndarray] = None
-        self._rng = np.random.RandomState(seed)
+        self._rng = rng
 
 
     def __getstate__(self) -> Dict[str, Any]:
         attrs = {}
         for name in self.__dict__:
-            # Remove _rng in pickle serialized object.
-            if name == "_rng":
-                continue
             if name == "_C":
                 sym1d = _compress_symmetric(self._C)
                 attrs["_c_1d"] = sym1d
@@ -184,12 +185,10 @@ class Cma:
         state["_C"] = _decompress_symmetric(state["_c_1d"])
         del state["_c_1d"]
         self.__dict__.update(state)
-        # Set _rng for unpickled object.
-        setattr(self, "_rng", np.random.RandomState())
 
     def ask(self) -> np.ndarray:
         B, D = self._eigen_decomposition()
-        z = self._rng.randn(self._n_dim)  # ~ N(0, I)
+        z = self._rng.standard_normal(self._n_dim)  # ~ N(0, I)
         y = cast(np.ndarray, B.dot(np.diag(D))).dot(z)  # ~ N(0, C)
         x = self._mean + self._sigma * y  # ~ N(m, σ^2 C)
         return x
@@ -227,7 +226,7 @@ class Cma:
         self._sigma *= np.exp(
             (self._c_sigma / self._d_sigma) * (norm_p_sigma / self._chi_n - 1)
         )
-        self._sigma = min(self._sigma, _SIGMA_MAX)
+        self._sigma = float(np.clip(self._sigma, _EPS, _SIGMA_MAX))
 
         # Covariance matrix adaption
         h_sigma_cond_left = norm_p_sigma / math.sqrt(
@@ -274,7 +273,8 @@ class Cma:
 
         self._C = (self._C + self._C.T) / 2
         D2, B = np.linalg.eigh(self._C)
-        D = np.sqrt(np.where(D2 < 0, _EPS, D2))
+        # Keep the inverse square root finite for singular covariance matrices.
+        D = np.sqrt(np.maximum(D2, _EPS))
         self._C = np.dot(np.dot(B, np.diag(D**2)), B.T)
 
         self._B, self._D = B, D

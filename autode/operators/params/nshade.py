@@ -15,8 +15,6 @@ from autode.core import (
 )
 from .common import generate_cauchy_bt_0_1, lehmer_mean, normalize_values
 
-# TODO accept any neighborhood implementation
-
 class NShade(object):
 
     @staticmethod
@@ -47,11 +45,11 @@ class NShade(object):
 
     @staticmethod
     def cauchy_get_strategy(scale: float = 0.1) -> ParamGetStrategy:
-        return lambda loc: generate_cauchy_bt_0_1(loc=loc, scale=scale)
+        return lambda ctx, loc: generate_cauchy_bt_0_1(rng=ctx.random, loc=loc, scale=scale)
 
     @staticmethod
     def cauchy_learning_strategy() -> ParamLearningStrategy:
-        def callback(_: ParamValue, results: List[ParamPerformance]):
+        def callback(ctx: GenerationContext, _: ParamValue, results: List[ParamPerformance]):
             values = []
             weights = []
             for result in results:
@@ -61,7 +59,7 @@ class NShade(object):
             value = (
                 lehmer_mean(values, weights=normalize_values(weights))
                 if len(values) > 0 else
-                np.random.uniform(low=.5, high=1)
+                ctx.random.uniform(low=.5, high=1)
             )
             return ParamValueLearned(value=value, think_fast=False)
 
@@ -69,11 +67,11 @@ class NShade(object):
 
     @staticmethod
     def normal_get_strategy(scale: float = 0.1) -> ParamGetStrategy:
-        return lambda loc: np.clip(np.random.normal(loc=loc, scale=scale), 0, 1)
+        return lambda ctx, loc: np.clip(ctx.random.normal(loc=loc, scale=scale), 0, 1)
 
     @staticmethod
     def normal_learning_strategy() -> ParamLearningStrategy:
-        def callback(_: ParamValue, results: List[ParamPerformance]):
+        def callback(ctx: GenerationContext, _: ParamValue, results: List[ParamPerformance]):
             values = []
             weights = []
             for result in results:
@@ -83,7 +81,7 @@ class NShade(object):
             value = (
                 np.sum(np.multiply(values, normalize_values(weights)))
                 if len(values) > 0 else
-                np.random.uniform(low=.1, high=1)
+                ctx.random.uniform(low=.1, high=1)
             )
             return ParamValueLearned(value=value, think_fast=False)
 

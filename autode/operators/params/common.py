@@ -1,4 +1,5 @@
 from typing import Optional, List
+from numpy.random import Generator
 import scipy.stats as ss
 from scipy.spatial import distance
 import numpy as np
@@ -19,12 +20,12 @@ def lehmer_mean(values: List[float], weights: Optional[List[float]] = None) -> f
 def manhattan_distance(x: List[float], y: List[float]) -> float:
     return distance.cityblock(x, y)
 
-def generate_cauchy_bt_0_1(loc=0, scale=1, size: Optional[int] = None) -> ParamValue:
+def generate_cauchy_bt_0_1(rng: Generator, loc=0, scale=1, size: Optional[int] = None) -> ParamValue:
     value_list = []
     max_generation = size if size else 1
     num_iter = 0
     while len(value_list) < max_generation:
-        value = ss.cauchy.rvs(loc=loc, scale=scale)
+        value = ss.cauchy.rvs(loc=loc, scale=scale, random_state=rng)
         if value > 0:
             value_list.append(value if value < 1 else 1)
         else:
@@ -34,9 +35,9 @@ def generate_cauchy_bt_0_1(loc=0, scale=1, size: Optional[int] = None) -> ParamV
     return value_list if size else value_list[0]
 
 
-def generate_cauchy(loc=0, scale=1, size: Optional[int] = None) -> ParamValue:
+def generate_cauchy(rng: Generator,loc=0, scale=1, size: Optional[int] = None) -> ParamValue:
     return (
-        ss.cauchy.rvs(loc=loc, scale=scale)
+        ss.cauchy.rvs(loc=loc, scale=scale, random_state=rng)
         if size is None
-        else [ss.cauchy.rvs(loc=loc, scale=scale) for _ in range(size)]
+        else ss.cauchy.rvs(loc=loc, scale=scale, size=size, random_state=rng) 
     )

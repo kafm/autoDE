@@ -2,9 +2,13 @@ import autode.sge.logger as logger
 import autode.sge.grammar as grammar
 import numpy as np
 import time, copy
+import fcntl
+import os
+import threading
+from contextlib import contextmanager
 from datetime import datetime
 from dataclasses import dataclass
-from autode.sge.parameters import params, set_parameters, load_parameters
+from autode.sge.parameters import params, DEFAULT_PARAMS, load_parameters
 from joblib import Parallel, delayed, cpu_count
 from typing import List, Callable
 from autode.sge.operators.recombination import crossover
@@ -12,9 +16,35 @@ from autode.sge.operators.mutation import mutate, mutate_level, mutation_prob_mu
 from autode.sge.operators.selection import tournament
 from autode.sge.operators.update import independent_update
 
+_RUN_LOCK = threading.Lock()
+_RUN_LOCK_PATH = f"/tmp/autode-psgewr-{os.getuid()}.lock"
+
+
+@contextmanager
+def _exclusive_training():
+    """Reject overlapping training runs across threads and local user processes."""
+    if not _RUN_LOCK.acquire(blocking=False):
+        raise RuntimeError("Another PSGEWR training run is already active")
+    try:
+        # Keep the file in place: removing it could let another process lock a
+        # different inode. The OS releases its lock if the owning process exits.
+        with open(_RUN_LOCK_PATH, "a") as file:
+            try:
+                fcntl.flock(file, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError as exc:
+                raise RuntimeError("Another PSGEWR training run is already active") from exc
+            try:
+                yield
+            finally:
+                fcntl.flock(file, fcntl.LOCK_UN)
+    finally:
+        _RUN_LOCK.release()
+
+
 @dataclass
 class EvalFn:
-    fn: Callable[[str], List[float]]
+    # Evaluation callbacks accept the explicit seed for each repetition.
+    fn: Callable[..., List[float]]
     optimal: List[float]
 
 class PSGEWR:
@@ -26,7 +56,14 @@ class PSGEWR:
         pmin: int = 2,
         elitesize: int = 2,
         rmethod:str ="kruns", 
-        nruns: int = 5):
+        nruns: int = 5,
+        seed: int = None):
+        self._seed = seed
+        # File-based searches start from defaults, not a previous search's
+        # configuration. Without a file, retain explicit caller configuration.
+        self._base_parameters = copy.deepcopy(
+            DEFAULT_PARAMS if parameters_file is not None else params
+        )
         self._parameters_file = parameters_file
         self._rmethod = rmethod
         self._nruns = nruns
@@ -41,8 +78,17 @@ class PSGEWR:
         self._gfit = evaluation_function.optimal
 
     def _setup(self):
+        self._g = 0
+        self._max_g = 0
+        self._numevals = 0
+        self._popsize = self._pinit
+        params.clear()
+        params.update(copy.deepcopy(self._base_parameters))
+        grammar.reset()
         if self._parameters_file is not None:
             load_parameters(file_name=self._parameters_file)
+        if self._seed is not None:
+            params["SEED"] = self._seed
         if params["SEED"] is None:
             params["SEED"] = int(datetime.now().microsecond)
         params["POPSIZE"] = self._popsize
@@ -53,7 +99,11 @@ class PSGEWR:
         params["ELITISM"] = self._elitesize 
         params["EXPERIMENT_NAME"] += "/" + str(params["LEARNING_FACTOR"] * 100)
         logger.prepare_dumps()
-        np.random.seed(int(params["SEED"]))
+        self._evaluation_seed = int(params["SEED"])
+        outer_seed = self._evaluation_seed
+        if outer_seed > np.iinfo(np.uint32).max:
+            outer_seed = int(np.random.SeedSequence(outer_seed).generate_state(1)[0])
+        np.random.seed(outer_seed)
         grammar.set_path(params["GRAMMAR"])
         grammar.read_grammar()
         grammar.set_max_tree_depth(params["MAX_TREE_DEPTH"])
@@ -94,6 +144,19 @@ class PSGEWR:
         return ni
 
     def run(self):
+        with _exclusive_training():
+            saved_parameters = copy.deepcopy(params)
+            saved_random_state = np.random.get_state()
+            try:
+                return self._run()
+            finally:
+                # Do not leave adaptive parameters or RNG consumption behind
+                # for the next training instance or the caller.
+                params.clear()
+                params.update(saved_parameters)
+                np.random.set_state(saved_random_state)
+
+    def _run(self):
         self._setup()
         population = list(self._make_initial_population())
         flag = False  # alternate False - best overall
@@ -159,7 +222,8 @@ class PSGEWR:
             mappings.append(mapping_values)
         curr_evals = self._numevals
         results = Parallel(n_jobs=-2)(
-            delayed(self._evaluate)(phen) for phen in phenotypes
+            delayed(self._evaluate)(phen, curr_evals + i * self._nruns)
+            for i, phen in enumerate(phenotypes)
         )
         fitness_all = self._reduce_fitness(results)
         for i in range(len(results)):
@@ -172,9 +236,19 @@ class PSGEWR:
             ind["tree_depth"] = tree_depths[i]
         self._numevals = curr_evals
 
-    def _evaluate(self, individual):
+    def _evaluate(self, individual, evaluation_offset):
         start_time = time.time()
-        res = [self._evaluation_function(individual) for _ in range(self._nruns)]
+        # Derive seeds from submission order, independently of worker scheduling
+        # and of the global RNG used by the outer evolutionary search.
+        res = [
+            self._evaluation_function(
+                individual,
+                seed=int(np.random.SeedSequence(
+                    [self._evaluation_seed, evaluation_offset + run]
+                ).generate_state(1, dtype=np.uint64)[0]),
+            )
+            for run in range(self._nruns)
+        ]
         print("ind run took %s seconds" % (time.time() - start_time))
         return res
 

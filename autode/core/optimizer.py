@@ -1,4 +1,5 @@
 from typing import List, Tuple, Optional, Dict
+from copy import copy
 from .context import *
 from .params import Params
 from .stop_condition import StopCondition
@@ -17,15 +18,19 @@ class Optimizer:
         resize_strategy: Optional[ResizePopulationCallback] = None,
         params: Optional[Params] = None,
         archive: Optional[Archive] = None,
+        seed: Optional[int] = None
     ):
         self._init_strategy = init_strategy
         self._neighborhood_strategy = neighborhood_strategy
         self._resize_strategy = resize_strategy
         self._update_strategy = update_strategy
-        self._stop_condition = stop_condition
+        self._stop_condition = copy(stop_condition)
         self._params = params if params else Params(events=events)
-        self._archive = archive
         self._events = events
+        self._rng = np.random.default_rng(seed)
+        self._archive = archive
+        if self._archive is not None:
+            self._archive.set_rng(self._rng)
 
     def search(
         self,
@@ -34,21 +39,25 @@ class Optimizer:
         ub: Bounds,
         ndims: NumDimensions,
     ) -> Tuple[List[float], float]:
+        # Budget inference belongs to this search, not to the caller's
+        # configuration or a previous search using this optimizer.
+        stop_condition = copy(self._stop_condition)
         initial_size = getattr(self._init_strategy, "population_size", None)
         if initial_size is not None:
-            self._assert_stop_condition(initial_size)
+            self._assert_stop_condition(initial_size, stop_condition)
         ctx = SearchContext(
             eval_fn=eval_fn,
             lb=lb,
             ub=ub,
             ndims=ndims,
-            stop_condition=self._stop_condition.__call__,
-            max_evals=self._stop_condition.max_evals,
-            max_gen=self._stop_condition.max_gen,
+            stop_condition=stop_condition.__call__,
+            max_evals=stop_condition.max_evals,
+            max_gen=stop_condition.max_gen,
+            rng=self._rng
         )
         population = self._init_strategy(ctx)
         init_size = population.size()
-        self._assert_stop_condition(init_size)
+        self._assert_stop_condition(init_size, stop_condition)
         gen_ctx = None
         while ctx.hasNext():
             gen_ctx = GenerationContext(
@@ -87,8 +96,8 @@ class Optimizer:
             return self._neighborhood_strategy(ctx)
         return None
 
-    def _assert_stop_condition(self, psize: int):
-        self._stop_condition.infer_max_evals_from_popsize_if_not_set(psize)
+    def _assert_stop_condition(self, psize: int, stop_condition: StopCondition):
+        stop_condition.infer_max_evals_from_popsize_if_not_set(psize)
 
     def params(self) -> Params:
         return self._params

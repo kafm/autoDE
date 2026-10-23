@@ -1,6 +1,6 @@
 import sys
 from functools import partial
-from autode.experiment import cec2017, Experiment, Benchmark
+from autode.experiment import Experiment, Benchmark
 import autode.operators as ops
 from autode.core import (
     create_optimizer,
@@ -12,13 +12,14 @@ from autode.core import (
 import autode.operators as ops
 from autode.experiment_autode import CEC_PROBLEMS, cec_instance
 
-def lshade_spacma(problem: Benchmark, ndims=None, stop_condition=None, popsize=None, f=.5, cr=.5, h=5, p=.11, r_arc=1.4, p_ensemble=.5, learning_rate=.8):
+def lshade_spacma(problem: Benchmark, ndims=None, stop_condition=None, popsize=None, f=.5, cr=.5, h=5, p=.11, r_arc=1.4, p_ensemble=.5, learning_rate=.8, seed=None):
     events = PubSub()
     params = Params(events=events, memory=ops.params.lshade.memory(h))
     fit_fn = problem.problem
     lb=problem.lb
     ub=problem.ub
     search = create_optimizer(
+        seed=seed,
         events=events,
         init_strategy=ops.population.init.random_batch(popsize),
         resize_strategy=ops.population.lpsr(pmin=4),
@@ -46,13 +47,14 @@ def lshade_spacma(problem: Benchmark, ndims=None, stop_condition=None, popsize=N
     )
     return search(fit_fn, lb, ub, ndims)
 
-def nlshade(problem:Benchmark, ndims=None, popsize=None, stop_condition=None, f=.5, cr=.5, r_arc=2.6):
+def nlshade(problem:Benchmark, ndims=None, popsize=None, stop_condition=None, f=.5, cr=.5, r_arc=2.6, seed=None):
     events = PubSub()
     params = Params(events=events, memory=ops.params.nshade.memory())
     fit_fn = problem.problem
     lb=problem.lb
     ub=problem.ub
     search = create_optimizer(
+        seed=seed,
         events=events,
         init_strategy=ops.population.init.random_batch(popsize),
         resize_strategy=ops.population.lpsr(pmin=4),
@@ -76,13 +78,14 @@ def nlshade(problem:Benchmark, ndims=None, popsize=None, stop_condition=None, f=
     )
     return search(fit_fn, lb, ub, ndims)
 
-def ebde(problem:Benchmark, ndims=None, popsize=None, stop_condition=None, h=None, f=.5, cr=.5, p=.11): #, include_archive=False
+def ebde(problem:Benchmark, ndims=None, popsize=None, stop_condition=None, h=None, f=.5, cr=.5, p=.11, seed=None): #, include_archive=False
     events = PubSub()
     fit_fn = problem.problem
     lb=problem.lb
     ub=problem.ub
     params = Params(events=events, memory=ops.params.shade.memory(popsize if h is None else h))
     search = create_optimizer(
+        seed=seed,
         events=events,
         init_strategy=ops.population.init.random_batch(popsize),
         update_strategy=[
@@ -106,6 +109,44 @@ def ebde(problem:Benchmark, ndims=None, popsize=None, stop_condition=None, h=Non
     )
     return search(fit_fn, lb, ub, ndims)  
 
+def eblshade(problem:Benchmark, ndims=None, popsize=None, stop_condition=None, h=5, f=.5, cr=.5, p=.11, r_arc=2.6, seed=None):
+    events = PubSub()
+    fit_fn = problem.problem
+    lb=problem.lb
+    ub=problem.ub
+    params = Params(events=events, memory=ops.params.lshade.memory(h))
+    search = create_optimizer(
+        seed=seed,
+        events=events,
+        init_strategy=ops.population.init.random_batch(popsize),
+        resize_strategy=ops.population.lpsr(pmin=4),
+        update_strategy=[
+            UpdateMethod(
+                mutation=ensemble.either(
+                    ops.mutation.current_to_pbest(
+                        f=params.adaptative(ops.params.lshade.cauchy(initial_value=f)),
+                        p=p,
+                        include_archive=True
+                    ),
+                    ops.mutation.current_to_ord_pbest(
+                    params.adaptative(ops.params.jade.cauchy(initial_value=f)),
+                    p=p,
+                    include_archive=False
+                    ), 
+                    params.adaptative(ops.params.random.boolean(low=.2,high=.8, weighted=True, learning_rate=.1))
+                ),
+                crossover=ops.crossover.binomial(
+                    params.adaptative(ops.params.lshade.normal(initial_value=cr))
+                ),
+                reparation=ops.reparation.middle_from_parent(),
+                selection=ops.selection.elitist(),
+            )
+        ],
+        stop_condition=stop_condition,
+        archive=ops.archive.fixed(round(popsize*r_arc)),
+        params=params,
+    )
+    return search(fit_fn, lb, ub, ndims)
 
 def get_stop_condition(ndims):
     return ops.stop_condition.max_evaluations(max_evals=ndims*10000)
@@ -146,16 +187,27 @@ def get_algos(ndims: int):
             r_arc=2.6, 
             stop_condition=get_stop_condition(ndims)
         ), 
-        "EBDE": partial(
-            ebde, 
-            ndims=ndims,
-            popsize=100, 
-            f=.5, 
-            cr=.5, 
-            h=100, 
-            p=2/100, 
-            stop_condition=ops.stop_condition.max_evaluations(max_evals=ndims*10000)
-        ) 
+        # "EBDE": partial(
+        #     ebde, 
+        #     ndims=ndims,
+        #     popsize=100, 
+        #     f=.5, 
+        #     cr=.5, 
+        #     h=100, 
+        #     p=2/100, 
+        #     stop_condition=ops.stop_condition.max_evaluations(max_evals=ndims*10000)
+        # ) 
+        "EBLSHADE": partial(
+                    eblshade, 
+                    ndims=ndims,
+                    popsize=18*ndims, 
+                    f=.5, 
+                    cr=.5, 
+                    h=5, 
+                    p=.11,
+                    r_arc=1.4,
+                    stop_condition=get_stop_condition(ndims)
+                ) 
     }
 
 if __name__ == "__main__":

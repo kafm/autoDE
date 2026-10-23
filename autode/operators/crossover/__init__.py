@@ -1,11 +1,8 @@
-from typing import List, Optional
+from typing import List
 from autode.core import (
     Param,
     UpdateContext,
     CrossoverCallback,
-    GenerationContext,
-    events,
-    GENERATION_START_EVT,
 )
 import scipy.stats as ss
 import numpy as np
@@ -20,9 +17,9 @@ def binomial(cr: Param) -> CrossoverCallback:
         _cr = cr()
         ndims = len(mx)
         pos_new = np.where(
-            np.random.uniform(size=ndims) < _cr, mx, ctx.individual.pos
-        )  # TODO check impact of <= or < in cr
-        j = np.random.randint(low=0, high=ndims)
+            ctx.random.uniform(size=ndims) < _cr, mx, ctx.individual.pos
+        ) 
+        j = ctx.random.integers(low=0, high=ndims)
         pos_new[j] = mx[j]
         return pos_new
 
@@ -35,14 +32,14 @@ def binomial_with_cauchy_perturbation(
     def callback(ctx: UpdateContext, mx: List[float]):
         _cr = cr()
         ndims = len(mx)
-        R = np.random.randint(low=0, high=ndims)
+        R = ctx.random.integers(low=0, high=ndims)
         y = ctx.individual.pos.copy()
         for i in range(ndims):
-            ri = np.random.rand()
+            ri = ctx.random.random()
             if ri < _cr or i == R:
                 y[i] = mx[i]
-            elif np.random.rand() < jump_rate:
-                y[i] = ss.cauchy.rvs(loc=y[i], scale=scale)
+            elif ctx.random.random() < jump_rate:
+                y[i] = ss.cauchy.rvs(loc=y[i], scale=scale, random_state=ctx.random)
         return y
 
     return callback
@@ -53,11 +50,11 @@ def exponential(cr: Param) -> CrossoverCallback:
         _cr = cr()
         ndims = len(mx)
         y = ctx.individual.pos.copy()
-        n = np.random.randint(low=0, high=ndims)
+        n = ctx.random.integers(low=0, high=ndims)
         j = n
         for _ in range(ndims):
             y[j] = mx[j]
-            if np.random.rand() < _cr:
+            if ctx.random.random() < _cr:
                 break
             j = (j + 1) % ndims
         return y
@@ -74,18 +71,18 @@ def multiple_exponential(cr: Param, t: int = 10) -> CrossoverCallback:
         es = t * (1 - _cr)
         cr_m = em / (em + 1)
         cr_s = es / (es + 1)
-        n = np.random.randint(low=0, high=ndims)
+        n = ctx.random.integers(low=0, high=ndims)
         mutation_enabled = True
         k = 0
         while k < ndims:
             if mutation_enabled:
-                while k < ndims and np.random.rand() < cr_m:
+                while k < ndims and ctx.random.random() < cr_m:
                     y[n] = mx[n]
                     n = (n + 1) % ndims
                     k += 1
                 mutation_enabled = False
             else:
-                while k < ndims and np.random.rand() < cr_s:
+                while k < ndims and ctx.random.random() < cr_s:
                     #y[n] = ctx.individual.pos[n]
                     n = (n + 1) % ndims
                     k += 1
@@ -101,52 +98,11 @@ def shuffled_exponential(cr: Param) -> CrossoverCallback:
         ndims = len(mx)
         y = ctx.individual.pos.copy()
         s = np.arange(ndims)
-        np.random.shuffle(s)
+        ctx.random.shuffle(s)
         for j in s:
             y[j] = mx[j]
-            if np.random.rand() < _cr:
+            if ctx.random.random() < _cr:
                 break
         return y
-
-    return callback
-
-
-class CovarianceMatrix:
-    def __init__(self):
-        self._value: List[List[float]] = None
-        self._unsub_gen_start = events.subscribe(GENERATION_START_EVT, self.compute)
-
-    def compute(self, ctx: GenerationContext):
-        values = [i.pos for i in ctx.population.get()]
-        C = np.cov(np.array(values).T)
-        self._value = np.linalg.eigh(C)[1]
-
-    def __call__(self):
-        return self._value
-
-    def __del__(self):
-        self._unsub_gen_start()
-
-
-def eigen_bin(cr: Param) -> CrossoverCallback:
-    C = CovarianceMatrix()
-    bin_cr = binomial(cr)
-
-    def callback(ctx: UpdateContext, mx: List[float]):
-        ndims = len(mx)
-        xt = np.zeros(ndims)
-        vt = np.zeros(ndims)
-        target = ctx.individual.pos
-        for j in range(ndims):
-            for k in range(ndims):
-                xt[j] += C()[k][j] * target[k]
-                vt[j] += C()[k][j] * mx[k]
-
-        ut = bin_cr(xt, vt)
-        u = np.zeros(ndims)
-        for j in range(ndims):
-            for k in range(ndims):
-                u[j] += C()[j][k] * ut[k]
-        return u
 
     return callback

@@ -374,6 +374,14 @@ class Grammar:
 
 
 _inst = Grammar()
+
+def reset():
+    """Clear rules, probabilities and caches while preserving bound methods."""
+    _inst.__dict__.clear()
+    _inst.__init__()
+    global ordered_non_terminals
+    ordered_non_terminals = _inst.ordered_non_terminals
+
 set_path = _inst.set_path
 set_pcfg_path = _inst.set_pcfg_path
 read_grammar = _inst.read_grammar

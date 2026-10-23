@@ -169,6 +169,7 @@ def current_to_pbestw(
 
 
 def current_to_ord_best(f: Param, include_archive: bool = False) -> MutationCallback:
+    """Paper Eq. (10); archive sampling is an optional extension."""
     def callback(ctx: UpdateContext) -> List[float]:
         current = ctx.individual
         individuals = ctx.picker.get_random(size=2,ignore=[current])
@@ -176,7 +177,10 @@ def current_to_ord_best(f: Param, include_archive: bool = False) -> MutationCall
             include_archive=include_archive, ignore=[current] + individuals
         )
         obest, omedian, oworse = sorted(individuals, key=lambda i: i.fit)
-        return current.pos + difference_vector([obest, omedian], [current, oworse], f())
+        scale = f()
+        step = scale * (obest.pos - current.pos)
+        step += scale * (omedian.pos - oworse.pos)
+        return current.pos + step
 
     return callback
 
@@ -184,6 +188,10 @@ def current_to_ord_best(f: Param, include_archive: bool = False) -> MutationCall
 def current_to_ord_pbest(
     f: Param, p: Union[int, Param] = 0.05, include_archive: bool = False
 ) -> MutationCallback:
+    """Paper Eq. (11): order all three donors, including the p-best draw.
+
+    Use include_archive=False for the paper's population-only donor pool.
+    """
     _p = p if callable(p) else lambda: p
 
     def callback(ctx: UpdateContext) -> List[float]:
@@ -193,14 +201,13 @@ def current_to_ord_pbest(
         oworse = ctx.picker.get_random(
             include_archive=include_archive, ignore=[current, pbest, omedian]
         )[0]
-        if omedian.fit > oworse.fit:
-            b = omedian
-            omedian = oworse
-            oworse = b
-        # omedian, oworse = ctx.picker.get_random_ordered(
-        #     size=2, include_archive=include_archive
-        # )
-        return current.pos + difference_vector([pbest, omedian], [current, oworse], f())
+        obest, omedian, oworse = sorted(
+            (pbest, omedian, oworse), key=lambda individual: individual.fit
+        )
+        scale = f()
+        step = scale * (obest.pos - current.pos)
+        step += scale * (omedian.pos - oworse.pos)
+        return current.pos + step
 
     return callback
 
