@@ -1,3 +1,6 @@
+import secrets
+
+from autode.experiment.seeds import generate_random_inner_seed
 import autode.sge.logger as logger
 import autode.sge.grammar as grammar
 import numpy as np
@@ -32,7 +35,9 @@ def _exclusive_training():
             try:
                 fcntl.flock(file, fcntl.LOCK_EX | fcntl.LOCK_NB)
             except BlockingIOError as exc:
-                raise RuntimeError("Another PSGEWR training run is already active") from exc
+                raise RuntimeError(
+                    "Another PSGEWR training run is already active"
+                ) from exc
             try:
                 yield
             finally:
@@ -43,22 +48,24 @@ def _exclusive_training():
 
 @dataclass
 class EvalFn:
-    # Evaluation callbacks accept the explicit seed for each repetition.
     fn: Callable[..., List[float]]
     optimal: List[float]
 
+
 class PSGEWR:
 
-    def __init__(self, 
+    def __init__(
+        self,
         evaluation_function: EvalFn,
         parameters_file: str,
-        popsize: int, 
+        popsize: int,
         pmin: int = 2,
         elitesize: int = 2,
-        rmethod:str ="kruns", 
+        rmethod: str = "kruns",
         nruns: int = 5,
-        seed: int = None):
-        self._seed = seed
+        seed: int = None,
+    ):
+        self._seed = secrets.randbits(32) if seed is None else seed
         # File-based searches start from defaults, not a previous search's
         # configuration. Without a file, retain explicit caller configuration.
         self._base_parameters = copy.deepcopy(
@@ -73,9 +80,9 @@ class PSGEWR:
         self._elitesize = elitesize
         self._g = 0
         self._max_g = 0
-        self._numevals = 0
         self._evaluation_function = evaluation_function.fn
         self._gfit = evaluation_function.optimal
+        self._eval_seeds = None
 
     def _setup(self):
         self._g = 0
@@ -87,23 +94,16 @@ class PSGEWR:
         grammar.reset()
         if self._parameters_file is not None:
             load_parameters(file_name=self._parameters_file)
-        if self._seed is not None:
-            params["SEED"] = self._seed
-        if params["SEED"] is None:
-            params["SEED"] = int(datetime.now().microsecond)
+        params["SEED"] = self._seed
         params["POPSIZE"] = self._popsize
-        if  self._popsize <= 0:
+        if self._popsize <= 0:
             raise ValueError("popsize must be an integer greater than zero")
         if self._pmin > self._popsize:
             raise ValueError("pmin must be less than popsize")
-        params["ELITISM"] = self._elitesize 
+        params["ELITISM"] = self._elitesize
         params["EXPERIMENT_NAME"] += "/" + str(params["LEARNING_FACTOR"] * 100)
         logger.prepare_dumps()
-        self._evaluation_seed = int(params["SEED"])
-        outer_seed = self._evaluation_seed
-        if outer_seed > np.iinfo(np.uint32).max:
-            outer_seed = int(np.random.SeedSequence(outer_seed).generate_state(1)[0])
-        np.random.seed(outer_seed)
+        self._generate_seeds()
         grammar.set_path(params["GRAMMAR"])
         grammar.read_grammar()
         grammar.set_max_tree_depth(params["MAX_TREE_DEPTH"])
@@ -126,8 +126,8 @@ class PSGEWR:
 
     def _make_initial_population(self):
         for i in range(self._popsize):
-            yield self._generate_random_individual()  
-    
+            yield self._generate_random_individual()
+
     def _get_candidate_individual(self, population):
         if np.random.uniform() < params["PROB_CROSSOVER"]:
             p1 = tournament(population, params["TSIZE"])
@@ -169,7 +169,7 @@ class PSGEWR:
             start_time = time.time()
             print(f"Started generation {self._g}")
             population.sort(key=lambda x: x["fitness"])
-            popsize, elite_size = self._get_gen_pop_def() 
+            popsize, elite_size = self._get_gen_pop_def()
             if not best:
                 best = copy.deepcopy(population[0])
             elif population[0]["fitness"] <= best["fitness"]:
@@ -186,18 +186,24 @@ class PSGEWR:
 
             logger.evolution_progress(self._g, population, best, grammar.get_pcfg())
 
-            print(f"Going to evolve {popsize} individuals and overall array size is {len(population)} where elite size is {elite_size}")
-            
-            new_population = [self._get_candidate_individual(population) for _ in range(popsize)]
+            print(
+                f"Going to evolve {popsize} individuals and overall array size is {len(population)} where elite size is {elite_size}"
+            )
+
+            new_population = [
+                self._get_candidate_individual(population) for _ in range(popsize)
+            ]
             self._evaluate_all(new_population)
             new_population.sort(key=lambda x: x["fitness"])
             best_gen = copy.deepcopy(new_population[0])
             new_population += population[:elite_size]
             population = new_population
             print(f"Generation {self._g} took {(time.time() - start_time)} seconds")
-            best_gen_fit = best_gen["fitness"] 
+            best_gen_fit = best_gen["fitness"]
             if best_gen_fit == 0:
-                print(f"Will stop because best fit was found at generation {self._g} {best_gen_fit}")
+                print(
+                    f"Will stop because best fit was found at generation {self._g} {best_gen_fit}"
+                )
                 break
             self._g += 1
         res = min([best, best_gen], key=lambda x: x["fitness"])
@@ -206,8 +212,8 @@ class PSGEWR:
         return res
 
     def _get_gen_pop_def(self):
-        new_popsize = max(self._pmin, round(self._pinit * ( 1 - self._g/self._max_g)))
-        elite_size = min(self._elitesize , new_popsize)
+        new_popsize = max(self._pmin, round(self._pinit * (1 - self._g / self._max_g)))
+        elite_size = min(self._elitesize, new_popsize)
         return new_popsize, elite_size
 
     def _evaluate_all(self, individuals):
@@ -238,14 +244,10 @@ class PSGEWR:
 
     def _evaluate(self, individual, evaluation_offset):
         start_time = time.time()
-        # Derive seeds from submission order, independently of worker scheduling
-        # and of the global RNG used by the outer evolutionary search.
         res = [
             self._evaluation_function(
                 individual,
-                seed=int(np.random.SeedSequence(
-                    [self._evaluation_seed, evaluation_offset + run]
-                ).generate_state(1, dtype=np.uint64)[0]),
+                seed=self._eval_seeds[run],
             )
             for run in range(self._nruns)
         ]
@@ -261,9 +263,12 @@ class PSGEWR:
             for f_result in result:
                 error_f = 0
                 for i in range(len(f_result)):
-                    error_f += (f_result[i] - self._gfit[i])**2
+                    error_f += (f_result[i] - self._gfit[i]) ** 2
                 error += error_f
-            fit = np.sqrt( (1 / (N*R)) *  error)
+            fit = np.sqrt((1 / (N * R)) * error)
             fits.append(fit)
-        #print(f"Fits={fits}")
         return fits
+
+    def _generate_seeds(self):
+        np.random.seed(self._seed)
+        self._eval_seeds = generate_random_inner_seed(size=self._nruns)

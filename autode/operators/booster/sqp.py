@@ -23,7 +23,7 @@ class SqpWrapper:
         max_evals = ctx.parent.max_evals()
         num_evals = ctx.parent.num_evals()
         fes = min(self._piter * max_evals, max_evals - num_evals)
-        ev_wrapped = EvalFn(ctx.parent.evaluate, fes)
+        ev_wrapped = EvalFn(lambda position: ctx.evaluate_many([position])[0], fes)
         try:
             minimize(ev_wrapped,
                 individual.pos,

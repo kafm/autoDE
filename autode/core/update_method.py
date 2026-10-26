@@ -108,7 +108,7 @@ class UpdateMethod:
             archived=ctx.archive.all() if ctx.archive else [],
             rng=ctx.random,
         )
-        if self.convergence_booster is None:
+        if self.convergence_booster is None or not ctx.parent.hasNext():
             return
         best = ctx.picker.get_best()
         if self.convergence_booster and self.convergence_booster.applies(ctx):

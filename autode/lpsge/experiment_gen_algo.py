@@ -6,7 +6,7 @@ import tempfile
 import pandas as pd
 from autode.lpsge.auto_de import ProblemInstance, search_optimizer, run_auto_de
 from autode.experiment.experiment import Experiment as EvaluationExperiment
-from autode.experiment.seeds import load_seed_schedule
+from autode.experiment.seeds import load_seed_schedule, read_seed_schedule
 
 @dataclass
 class ExperimentRunResult:
@@ -126,26 +126,33 @@ class ExperimentRunnable:
         self._headers = rows[0]
 
 @dataclass
+class ExperimentProblems:
+    train: List[ProblemInstance]
+    test: Optional[List[ProblemInstance]] = None
+
+@dataclass
 class ExperimentState:
     run_cnt: int = 0
     traning_set: Optional[str] = None
-    problems: Optional[List[ProblemInstance]] = None 
+    problems: Optional[ExperimentProblems] = None 
     test_algo: Optional[str] = None 
     train_experiment: Optional[ExperimentRunnable] = None
     test_experiment: Optional[EvaluationExperiment] = None
+
 
 class Experiment:
     def __init__(
         self,
         name: str,
-        problems: Dict[str, List[ProblemInstance]],
+        problems: Dict[str, ExperimentProblems],
         parameters_file: str, 
         popsize: int, 
         max_experiments: int = 51,
         pmin: int = 2,
         elitesize: int = 2,
         rmethod:str ="kruns", 
-        nruns: int = 5
+        nruns: int = 5, 
+        test_seed_file: Optional[str | Dict[int, str]] = None,
     ):
         self._name = name
         self._max_experiments = max_experiments
@@ -156,6 +163,9 @@ class Experiment:
         self._elitesize = elitesize
         self._nruns = nruns
         self._rmethod = rmethod
+        # A single file uses full problem keys; dimension-specific competitor
+        # files may use bare problem names (e.g. F1).
+        self._test_seed_file = test_seed_file
 
     def run(self):
         state = ExperimentState()
@@ -168,12 +178,12 @@ class Experiment:
         
     def _train(self, state:ExperimentState):
         seeds = load_seed_schedule(
-            f"{self._name}_train.csv", [state.traning_set], 1
+            f"{self._name}_train.csv", [state.traning_set], 1, nbits=32
         )
         seed = seeds[state.traning_set][0]
         def experiment_callback()->ExperimentRunResult:
             res = search_optimizer(
-                problems=state.problems,
+                problems=state.problems.train,
                 parameters_file=self._parameters_file, 
                 popsize=self._popsize,
                 nruns=self._nruns,
@@ -206,12 +216,33 @@ class Experiment:
 
     def _test(self, state:ExperimentState):
         problems = {}
-        for problem in state.problems:
+        test_set = state.problems.train if state.problems.test is None else state.problems.test
+        for problem in test_set:
             name = state.traning_set if problem.name is None else problem.name
             key = f"{name}_{problem.ndims}D"
             if key in problems:
                 raise ValueError(f"Duplicate post-training problem: {key}")
             problems[key] = problem
+
+        seed_schedule = None
+        if self._test_seed_file is not None:
+            seed_schedule = {}
+            sources = {}
+            for key, problem in problems.items():
+                source = self._test_seed_file
+                if isinstance(source, dict):
+                    if problem.ndims not in source:
+                        raise ValueError(f"No test seed file for dimension {problem.ndims}")
+                    source = source[problem.ndims]
+                if source not in sources:
+                    sources[source] = read_seed_schedule(source)
+                seeds = sources[source]
+                source_key = key
+                if source_key not in seeds and isinstance(self._test_seed_file, dict):
+                    source_key = state.traning_set if problem.name is None else problem.name
+                if source_key not in seeds or len(seeds[source_key]) < self._max_experiments:
+                    raise ValueError(f"Test seed file {source} needs {self._max_experiments} seeds for {key}")
+                seed_schedule[key] = list(seeds[source_key])
 
         phenotype = state.test_algo
         def evaluate(problem, *, seed):
@@ -224,6 +255,7 @@ class Experiment:
             algos={"AUTO": evaluate},
             problems=problems,
             max_experiments=self._max_experiments,
+            seed_schedule=seed_schedule,
         )
         print(f"[{self._name}] Testing for {state.traning_set}")
         state.test_experiment.run()

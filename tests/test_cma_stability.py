@@ -20,17 +20,17 @@ class CmaStabilityTests(unittest.TestCase):
         self.assertTrue(np.all(np.isfinite(optimizer._C)))
 
     def test_large_finite_path_saturates_without_overflow(self):
-        optimizer = cma.Cma(np.zeros(2), sigma=0.5, population_size=4)
+        optimizer = cma.Cma(np.zeros(2), sigma=0.5, rng=np.random.default_rng(42), population_size=4)
         self.update(optimizer, [1e6, 1e6])
         self.assertEqual(optimizer._sigma, cma._SIGMA_MAX)
 
     def test_small_sigma_is_floored(self):
-        optimizer = cma.Cma(np.zeros(2), sigma=1e-20, population_size=4)
+        optimizer = cma.Cma(np.zeros(2), sigma=1e-20, rng=np.random.default_rng(42), population_size=4)
         self.update(optimizer, [0, 0])
         self.assertEqual(optimizer._sigma, cma._EPS)
 
     def test_normal_update_matches_multiplicative_formula(self):
-        optimizer = cma.Cma(np.zeros(2), sigma=0.5, population_size=4)
+        optimizer = cma.Cma(np.zeros(2), sigma=0.5, rng=np.random.default_rng(42), population_size=4)
         self.update(optimizer, [0.1, 0.2])
         expected = 0.5 * math.exp(
             optimizer._c_sigma / optimizer._d_sigma
@@ -39,7 +39,7 @@ class CmaStabilityTests(unittest.TestCase):
         self.assertAlmostEqual(optimizer._sigma, expected)
 
     def test_singular_covariance_update_is_finite(self):
-        optimizer = cma.Cma(np.zeros(2), sigma=0.5, population_size=4, cov=np.zeros((2, 2)))
+        optimizer = cma.Cma(np.zeros(2), sigma=0.5, rng=np.random.default_rng(42), population_size=4, cov=np.zeros((2, 2)))
         self.update(optimizer, [0.1, 0.2])
         self.assertTrue(np.isfinite(optimizer._sigma))
 

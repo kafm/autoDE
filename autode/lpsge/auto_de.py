@@ -1,13 +1,14 @@
 from __future__ import annotations
 from autode.core import (
     create_optimizer,
-    UpdateMethod,
+    BatchUpdateMethod as UpdateMethod,
     Params,
     ParamGenerator,
     ensemble,
     PubSub,
 )
 from typing import List
+from autode.experiment.seeds import generate_random_inner_seed
 import autode.operators as ops
 from functools import partial
 import numpy as np
@@ -39,16 +40,13 @@ def _build_param_generator(init_val, get_strategy, repair_strategy, learning_str
     )
 
 class _Optimizer: 
-    def __init__(self, events, stop_condition, init_strategy: str = "random", seed=None):
+    def __init__(self, events, stop_condition, seed=None):
         self._events = events
         self._stop_condition = stop_condition
         self._params = None
-        self._init_strategy = init_strategy
         self._seed = seed
 
-    def __call__(self, resize_strategy, update_strategy, archive, popsize, params, init_strategy: str = None, seed=None):
-        if init_strategy is not None:
-            self._init_strategy = init_strategy
+    def __call__(self, resize_strategy, update_strategy, archive, popsize, params, seed=None):
         if seed is not None:
             self._seed = seed
         optimizer = create_optimizer(
@@ -69,7 +67,7 @@ class _Optimizer:
         return callback
     
     def _get_init_strategy(self, popsize):
-        return ops.population.init.random(popsize)
+        return ops.population.init.random_batch(popsize)
 
 
 class _Mutation:
@@ -118,7 +116,7 @@ class _Random:
         self.range = partial(ops.params.random.range, events=events)
 
 
-def get_locals(stop_condition, ndims, _events = None, init_strategy: str = "random", seed=None):
+def get_locals(stop_condition, ndims, _events = None, seed=None):
     events = _events if _events is not None else PubSub()
     return {
         "np": np,
@@ -137,7 +135,7 @@ def get_locals(stop_condition, ndims, _events = None, init_strategy: str = "rand
         "random": _Random(events=events),
         "update_strategy": _build_update_strategy,
         "param_strategy": _build_param_generator,
-        "create_optimizer": _Optimizer(events=events, stop_condition=stop_condition, init_strategy=init_strategy, seed=seed),
+        "create_optimizer": _Optimizer(events=events, stop_condition=stop_condition, seed=seed),
         "jade": ops.params.jade,
         "shade": ops.params.shade,
         "ilshade": ops.params.ilshade,
@@ -165,18 +163,14 @@ def auto_de_eval(individual: str, problem: ProblemInstance, invalid_fitness: flo
     return fit
 
 def auto_de_evals(
-    individual: str, problems: List[ProblemInstance], seed: Optional[int] = None
+    individual: str, problems: List[ProblemInstance], seed: int
 )->List[float]:
     if seed is None:
-        return [auto_de_eval(individual, problem) for problem in problems]
+        raise ValueError(f"No seeds for {len(problems)} problems.")
     results = []
+    seeds = generate_random_inner_seed(rng=np.random.default_rng(seed), size=len(problems))
     for index, problem in enumerate(problems):
-        entropy = [seed, index]
-        if problem.seed is not None:
-            entropy.append(problem.seed)
-        run_seed = int(np.random.SeedSequence(entropy).generate_state(
-            1, dtype=np.uint64
-        )[0])
+        run_seed = seeds[index]
         results.append(auto_de_eval(individual, replace(problem, seed=run_seed)))
     return results
 

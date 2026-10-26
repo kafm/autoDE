@@ -72,7 +72,7 @@ class OrderedMutationTests(unittest.TestCase):
     def test_real_picker_returns_finite_trials_without_modifying_population(self):
         rng = np.random.default_rng(51)
         population = [individual(rng.normal(size=30), i, i) for i in range(20)]
-        picker = DefaultPicker(population, list(range(20)))
+        picker = DefaultPicker(population, list(range(20)), rng=rng)
         for factory in (current_to_ord_best, current_to_ord_pbest):
             trial = factory(lambda: .5)(SimpleNamespace(individual=population[-1], picker=picker))
             self.assertEqual(trial.shape, (30,))

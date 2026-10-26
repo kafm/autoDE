@@ -81,7 +81,7 @@ class Optimizer:
             self._archive and self._archive.resize(population.size())
             self._events.publish(GENERATION_FINALIZED_EVT, gen_ctx)
             ctx.next()
-            #print([i.fit for i in population._individuals])
+
         return ctx.best()
 
     def resize_population(

@@ -2,7 +2,7 @@ from typing import Callable, Tuple, Dict, List, Any
 import os, csv, time
 import tempfile
 from .cec2017_problems import Benchmark
-from .seeds import load_seed_schedule
+from .seeds import load_seed_schedule, save_external_seed_schedule
 
 
 class Experiment:
@@ -13,6 +13,7 @@ class Experiment:
         problems: Dict[str, Benchmark],
         max_experiments: int = 51,
         save_point: int = 1,
+        seed_schedule: Dict[str, List[int]] = None,
     ):
         self._filename = filename
         self._algos = algos
@@ -22,6 +23,7 @@ class Experiment:
         self._headers = ["no", "algo", "problem", "solution", "fit", "seed"]
         self._num_experiments = 0
         self._seeds: Dict[str, List[int]] = {}
+        self._seed_schedule = seed_schedule
 
     def run(self):
         self._init_seeds()
@@ -49,6 +51,11 @@ class Experiment:
         print(f"Ended experiment no {i} after {(gend - gstart)/60} minutes")
 
     def _init_seeds(self):
+        if self._seed_schedule is not None:
+            self._seeds = save_external_seed_schedule(
+                self._filename, self._seed_schedule, self._problems, self._max_experiments
+            )
+            return
         self._seeds = load_seed_schedule(
             self._filename, self._problems, self._max_experiments
         )

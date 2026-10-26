@@ -66,6 +66,7 @@ class SearchContext:
         return fits
 
     def evaluate(self, solution: List[float]) -> float:
+        print(solution)
         fit = self._eval_fn(solution)
         if fit < self._fit:
             self._best = solution

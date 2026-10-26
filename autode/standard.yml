@@ -11,6 +11,6 @@ MIN_TREE_DEPTH: 10
 MAX_TREE_DEPTH: 10
 ADAPTIVE_LF: False
 LEARNING_FACTOR: 0.01
-GRAMMAR: /Users/kam/Code/Repositories/Auto-DE/auto-de/grammar.pybnf
+GRAMMAR: autode/grammar.pybnf
 #PSGEWR
 PMIN: 4

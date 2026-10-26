@@ -10,7 +10,7 @@ from autode.core import (
     PubSub
 )
 import autode.operators as ops
-from autode.experiment_autode import CEC_PROBLEMS, cec_instance
+from experiment_autode import CEC_PROBLEMS, cec_instance
 
 def lshade_spacma(problem: Benchmark, ndims=None, stop_condition=None, popsize=None, f=.5, cr=.5, h=5, p=.11, r_arc=1.4, p_ensemble=.5, learning_rate=.8, seed=None):
     events = PubSub()

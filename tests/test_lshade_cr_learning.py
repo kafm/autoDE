@@ -18,23 +18,23 @@ class LShadeCrLearningTests(unittest.TestCase):
     def test_zero_successful_cr_enters_terminal_state_without_nan(self):
         with warnings.catch_warnings():
             warnings.simplefilter('error', RuntimeWarning)
-            learned = LShade.normal_learning_strategy()(.5, [sample(0), sample(0, 9)])
+            learned = LShade.normal_learning_strategy()(None, .5, [sample(0), sample(0, 9)])
         self.assertEqual(learned.value, 0)
         self.assertTrue(learned.think_fast)
 
     def test_positive_successes_use_improvement_weighted_lehmer_mean(self):
-        learned = LShade.normal_learning_strategy()(.5, [sample(.2), sample(.8, 9), sample(1, improved=False)])
+        learned = LShade.normal_learning_strategy()(None, .5, [sample(.2), sample(.8, 9), sample(1, improved=False)])
         self.assertAlmostEqual(learned.value, (.1 * .2**2 + .9 * .8**2) / (.1 * .2 + .9 * .8))
         self.assertFalse(learned.think_fast)
 
     def test_mixed_zero_and_positive_successes_do_not_lock(self):
-        learned = LShade.normal_learning_strategy()(.5, [sample(0), sample(.8, 9)])
+        learned = LShade.normal_learning_strategy()(None, .5, [sample(0), sample(.8, 9)])
         self.assertAlmostEqual(learned.value, .8)
         self.assertFalse(learned.think_fast)
 
     def test_no_successes_preserve_previous_value(self):
         for samples in ([], [sample(.8, improved=False)]):
-            learned = LShade.normal_learning_strategy()(.37, samples)
+            learned = LShade.normal_learning_strategy()(None, .37, samples)
             self.assertEqual(learned.value, .37)
             self.assertFalse(learned.think_fast)
 

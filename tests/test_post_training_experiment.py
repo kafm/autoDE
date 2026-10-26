@@ -6,7 +6,7 @@ import unittest
 from unittest.mock import patch
 
 from autode.lpsge.auto_de import ProblemInstance
-from autode.lpsge.experiment_gen_algo import Experiment, ExperimentState
+from autode.lpsge.experiment_gen_algo import Experiment, ExperimentProblems, ExperimentState
 
 
 class PostTrainingExperimentTests(unittest.TestCase):
@@ -19,7 +19,7 @@ class PostTrainingExperimentTests(unittest.TestCase):
             name = str(Path(folder) / "experiment")
             experiment = Experiment(name, {}, None, 4, max_experiments=2)
             problems = self.problems()
-            state = ExperimentState(traning_set="F1", problems=problems,
+            state = ExperimentState(traning_set="F1", problems=ExperimentProblems(train=problems),
                                     test_algo="generated algorithm")
             calls = []
             def evaluate(phenotype, problem):
@@ -49,11 +49,58 @@ class PostTrainingExperimentTests(unittest.TestCase):
                 self.assertEqual(int(row["seed"]), seed)
                 self.assertEqual(seed, seeds[row["problem"]][int(row["no"]) - 1])
 
+    def test_explicit_test_problems_are_kept_separate_from_training(self):
+        with tempfile.TemporaryDirectory() as folder:
+            name = str(Path(folder) / "experiment")
+            train = self.problems()
+            test = [ProblemInstance(None, 10, -5., 5., 0., None,
+                                    name="held_out", seed=11)]
+            experiment = Experiment(
+                name, {"F1": ExperimentProblems(train=train, test=test)},
+                "parameters.yml", 4, max_experiments=2)
+            result = dict(genotype=[], phenotype="generated algorithm", fitness=1.,
+                          runtime=2., num_g=3, num_evals=4)
+            with patch("autode.lpsge.experiment_gen_algo.search_optimizer", return_value=result) as search, \
+                 patch("autode.lpsge.experiment_gen_algo.run_auto_de", return_value=([], 0.)) as evaluate:
+                experiment.run()
+                experiment.run()
+            search.assert_called_once()
+            self.assertIs(search.call_args.kwargs["problems"], train)
+            self.assertEqual(evaluate.call_count, 2)
+            seeds = json.loads(Path(f"{name}_F1_test.json").read_text())
+            self.assertEqual(set(seeds), {"held_out_10D"})
+            for call, seed in zip(evaluate.call_args_list, seeds["held_out_10D"]):
+                self.assertEqual(call.args[0], "generated algorithm")
+                problem = call.args[1]
+                self.assertEqual(problem.ndims, 10)
+                self.assertEqual(problem.name, "held_out")
+                self.assertEqual(problem.seed, seed)
+                self.assertIsNot(problem, test[0])
+            self.assertEqual([problem.seed for problem in train], [7, 7])
+            self.assertEqual(test[0].seed, 11)
+            with Path(f"{name}_F1_test.csv").open() as file:
+                rows = list(csv.DictReader(file))
+            self.assertEqual([row["problem"] for row in rows], ["held_out_10D"] * 2)
+
+    def test_empty_test_set_does_not_fall_back_to_training(self):
+        with tempfile.TemporaryDirectory() as folder:
+            name = str(Path(folder) / "experiment")
+            experiment = Experiment(name, {}, None, 4, max_experiments=1)
+            state = ExperimentState(
+                traning_set="F1",
+                problems=ExperimentProblems(train=self.problems(), test=[]),
+                test_algo="generated algorithm")
+            with patch("autode.lpsge.experiment_gen_algo.run_auto_de") as evaluate:
+                experiment._test(state)
+            evaluate.assert_not_called()
+            with Path(f"{name}_F1_test.csv").open() as file:
+                self.assertEqual(list(csv.DictReader(file)), [])
+
     def test_training_sets_have_independent_progress_and_algorithms(self):
         with tempfile.TemporaryDirectory() as folder:
             name = str(Path(folder) / "experiment")
             experiment = Experiment(name, {}, None, 4, max_experiments=1)
-            state = ExperimentState(problems=self.problems())
+            state = ExperimentState(problems=ExperimentProblems(train=self.problems()))
             with patch("autode.lpsge.experiment_gen_algo.run_auto_de", return_value=([], 0.)) as evaluate:
                 for training_set in ("F1", "F3"):
                     state.traning_set = training_set
@@ -69,13 +116,13 @@ class PostTrainingExperimentTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             name = str(Path(folder) / "experiment")
             experiment = Experiment(name, {}, "parameters.yml", 4)
-            state = ExperimentState(traning_set="F1", problems=self.problems())
+            state = ExperimentState(traning_set="F1", problems=ExperimentProblems(train=self.problems()))
             result = dict(genotype=[], phenotype="generated algorithm", fitness=1.,
                           runtime=2., num_g=3, num_evals=4)
             with patch("autode.lpsge.experiment_gen_algo.search_optimizer", return_value=result) as search:
                 experiment._train(state)
                 experiment._train(state)
-            search.assert_called_once_with(problems=state.problems,
+            search.assert_called_once_with(problems=state.problems.train,
                                            parameters_file="parameters.yml",
                                            popsize=4, nruns=5, elitesize=2,
                                            seed=json.loads(Path(f"{name}_train.json").read_text())["F1"][0])
@@ -86,18 +133,49 @@ class PostTrainingExperimentTests(unittest.TestCase):
             self.assertEqual(rows[0]["phenotype"], "generated algorithm")
             self.assertEqual(int(rows[0]["seed"]), search.call_args.kwargs["seed"])
 
+    def test_training_generates_one_master_seed_per_set_and_reuses_it(self):
+        with tempfile.TemporaryDirectory() as folder:
+            name = str(Path(folder) / "experiment")
+            training_sets = {
+                key: ExperimentProblems(train=self.problems())
+                for key in ("F1", "F3")
+            }
+            experiment = Experiment(name, training_sets, None, 4,
+                                    nruns=5, max_experiments=51)
+            result = dict(genotype=[], phenotype="generated algorithm", fitness=1.,
+                          runtime=2., num_g=3, num_evals=4)
+            with patch("autode.lpsge.experiment_gen_algo.search_optimizer", return_value=result) as search, \
+                 patch.object(experiment, "_test"):
+                experiment.run()
+                seed_path = Path(f"{name}_train.json")
+                saved = seed_path.read_bytes()
+                schedule = json.loads(saved)
+                self.assertEqual(set(schedule), set(training_sets))
+                self.assertTrue(all(len(seeds) == 1 for seeds in schedule.values()))
+                masters = [schedule[key][0] for key in training_sets]
+                self.assertTrue(all(type(seed) is int and 0 <= seed < 2**32
+                                    for seed in masters))
+                self.assertEqual(len(set(masters)), len(training_sets))
+                self.assertEqual([call.kwargs["seed"] for call in search.call_args_list],
+                                 masters)
+                with patch("autode.experiment.seeds.secrets.randbits",
+                           side_effect=AssertionError("Existing seeds must be reused")):
+                    experiment.run()
+                self.assertEqual(seed_path.read_bytes(), saved)
+                self.assertEqual(search.call_count, len(training_sets))
+
     def test_training_uses_each_sets_saved_seed_and_upgrades_legacy_csv(self):
         with tempfile.TemporaryDirectory() as folder:
             name = str(Path(folder) / "experiment")
             experiment = Experiment(name, {}, None, 4)
-            schedule = {"F1": [2**63 + 5], "F3": [2**63 + 6]}
+            schedule = {"F1": [2**32 - 2], "F3": [2**32 - 1]}
             Path(f"{name}_train.json").write_text(json.dumps(schedule))
             Path(f"{name}_train.csv").write_text(
                 "problem,genotype,phenotype,error,runtime(s),runtime(g),runtime(fes),pinit\n"
                 "old,[],old algorithm,1,2,3,4,4\n")
             result = dict(genotype=[], phenotype="generated algorithm", fitness=1.,
                           runtime=2., num_g=3, num_evals=4)
-            state = ExperimentState(problems=self.problems())
+            state = ExperimentState(problems=ExperimentProblems(train=self.problems()))
             with patch("autode.lpsge.experiment_gen_algo.search_optimizer", return_value=result) as search:
                 for name_of_set in ("F1", "F3"):
                     state.traning_set = name_of_set

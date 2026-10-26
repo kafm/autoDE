@@ -2,9 +2,10 @@ import importlib
 import pickle
 from types import SimpleNamespace
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import numpy as np
+from autode.core import BatchUpdateMethod, UpdateMethod
 
 module = importlib.import_module('autode.operators.booster.sqp')
 
@@ -15,16 +16,17 @@ class SqpBoosterTests(unittest.TestCase):
         trace = []
         def objective(x):
             return float(np.sum((x - optimum) ** 2))
-        def evaluate(x):
-            trace.append(np.array(x, copy=True))
-            return objective(x)
+        def evaluate_many(positions):
+            positions = np.asarray(positions)
+            self.assertEqual(positions.shape, (1, 3))
+            trace.extend(positions.copy())
+            return np.sum((positions - optimum) ** 2, axis=1)
         parent = SimpleNamespace(
             lb=lambda: [-5.] * 3, ub=lambda: [5.] * 3,
             max_evals=lambda: 1000, num_evals=lambda: 1000 - remaining,
-            evaluate=evaluate,
         )
         individual = SimpleNamespace(pos=np.array(start))
-        result = module.sqp(.2)(SimpleNamespace(parent=parent), individual)
+        result = module.sqp(.2)(SimpleNamespace(parent=parent, evaluate_many=evaluate_many), individual)
         return result, np.asarray(trace), objective
 
     def test_uses_sqp_method_and_existing_tolerance(self):
@@ -60,6 +62,23 @@ class SqpBoosterTests(unittest.TestCase):
         np.testing.assert_array_equal(first[0], second[0])
         self.assertEqual(first[1], second[1])
         self.assertEqual(pickle.dumps(np.random.get_state()), state)
+
+    def test_booster_is_skipped_when_search_has_stopped(self):
+        for method in (UpdateMethod, BatchUpdateMethod):
+            with self.subTest(method=method.__name__):
+                booster = Mock()
+                population = Mock()
+                population.get.return_value = []
+                population.ranking.return_value = []
+                ctx = SimpleNamespace(
+                    population=population, archive=None,
+                    random=np.random.default_rng(42),
+                    parent=SimpleNamespace(hasNext=lambda: False),
+                )
+                method(mutation=Mock(), selection=Mock(),
+                       convergence_booster=booster)._boost_if_applies(ctx)
+                booster.applies.assert_not_called()
+                booster.boost.assert_not_called()
 
 
 if __name__ == '__main__':

@@ -1,7 +1,7 @@
 from typing import List, Tuple
 
 import os, sys
-from autode.lpsge import Experiment,ProblemInstance
+from autode.lpsge import Experiment, ExperimentProblems, ProblemInstance
 from autode.core.stop_condition import StopCondition
 from cec2017.functions import *
 
@@ -37,11 +37,12 @@ CEC_PROBLEMS = {
     "F30": (f30, 3000.0),
 }
 
-def cec_instance(problem: Tuple[callable, float], ndims: int)->ProblemInstance:
+def cec_instance(problem: Tuple[callable, float], ndims: int, name: str)->ProblemInstance:
     fn,bias = problem
     return ProblemInstance(
         problem=fn,
         ndims=ndims, 
+        name=name,
         stop_condition=StopCondition(
             max_evals=ndims*10000, 
             callback=lambda ctx: (ctx.best()[1] - bias) <= 0
@@ -51,7 +52,7 @@ def cec_instance(problem: Tuple[callable, float], ndims: int)->ProblemInstance:
         global_optimum=bias
     )
 
-def get_problems(fnames: str, ndims: List[int]):
+def get_problems(fnames: str, train_ndims: List[int], test_ndims: List[int]):
     fns =  CEC_PROBLEMS.keys() if not fnames else fnames.split(",")
     problems = {}
     for fn in fns:
@@ -59,15 +60,23 @@ def get_problems(fnames: str, ndims: List[int]):
         if fname not in CEC_PROBLEMS:
             raise Exception(f"ERROR: Benchmark function {fname} does not exist")
         problem = CEC_PROBLEMS[fname]
-        problems[fname] = [cec_instance(problem, dim) for dim in ndims]
+        problems[fname] = ExperimentProblems(
+            train=[cec_instance(problem, dim, fname) for dim in train_ndims],
+            test=[cec_instance(problem, dim, fname) for dim in test_ndims],
+        )
     return problems
 
 __location__ = os.path.realpath(
         os.path.join(os.getcwd(), os.path.dirname(__file__))
 )
 
-ndims = [30, 50]
-parameters_file = os.path.join(__location__,"standard.yml")
+train_ndims = [10, 30]
+test_ndims = [30, 50]
+test_seed_files = {
+    dim: os.path.join(__location__, f"experiment_competitors_all_{dim}d.json")
+    for dim in test_ndims
+}
+parameters_file = os.path.join(__location__, "autode", "standard.yml")
 nruns = 5
 popsize = 20
 elitesize = 2
@@ -87,7 +96,7 @@ if __name__ == "__main__":
 
     Experiment(
         name=f"experiment_autode_{fnames_part}", 
-        problems=get_problems(fnames, ndims),
+        problems=get_problems(fnames if fnames != "all" else None, train_ndims, test_ndims),
         parameters_file=parameters_file, 
         popsize=popsize, 
         max_experiments=1,
@@ -95,8 +104,6 @@ if __name__ == "__main__":
         elitesize = elitesize,
         rmethod ="kruns", 
         nruns = nruns,
+        test_seed_file=test_seed_files,
     ).run()
     sys.exit(0)
-
-
-
