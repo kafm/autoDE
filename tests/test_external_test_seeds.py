@@ -49,7 +49,7 @@ class ExternalTestSeedsTests(unittest.TestCase):
         for path, data in original.items():
             self.assertEqual(Path(path).read_bytes(), data)
         self.assertEqual([p.seed for p in self.test], [7, 7])
-        saved = json.loads(Path(f'{self.name}_first_test.json').read_text())
+        saved = json.loads(Path(f'{self.name}_test.json').read_text())
         self.assertEqual(saved, {'F1_30D': [10, 11, 12], 'F1_50D': [20, 21, 22]})
 
     def test_single_file_uses_full_problem_keys(self):
@@ -73,14 +73,14 @@ class ExternalTestSeedsTests(unittest.TestCase):
                 self.assertEqual(Path(source).read_bytes(), original)
         with self.assertRaisesRegex(ValueError, 'dimension 50'):
             self.experiment({30: self.source('30d.json', {'F1': [1, 2]})})._test(self.state())
-        self.assertFalse(Path(f'{self.name}_training_test.csv').exists())
+        self.assertFalse(Path(f'{self.name}_test.csv').exists())
 
     def test_changed_source_is_rejected_without_overwriting_results(self):
         source = self.source('seeds.json', {'F1_30D': [10, 11], 'F1_50D': [20, 21]})
         experiment = self.experiment(source)
         with patch('autode.lpsge.experiment_gen_algo.run_auto_de', return_value=([], 0.)):
             experiment._test(self.state())
-        result = Path(f'{self.name}_training_test.csv')
+        result = Path(f'{self.name}_test.csv')
         schedule = result.with_suffix('.json')
         original = (result.read_bytes(), schedule.read_bytes())
         Path(source).write_text(json.dumps({'F1_30D': [99, 11], 'F1_50D': [20, 21]}))
@@ -92,7 +92,7 @@ class ExternalTestSeedsTests(unittest.TestCase):
 
     def test_existing_csv_seeds_must_match_even_without_saved_schedule(self):
         source = self.source('seeds.json', {'F1_30D': [10, 11], 'F1_50D': [20, 21]})
-        result = Path(f'{self.name}_training_test.csv')
+        result = Path(f'{self.name}_test.csv')
         with result.open('w', newline='') as file:
             writer = csv.writer(file)
             writer.writerow(['no', 'algo', 'problem', 'solution', 'fit', 'seed'])

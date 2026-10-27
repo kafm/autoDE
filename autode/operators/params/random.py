@@ -18,11 +18,13 @@ class Random:
 
     @staticmethod
     def uniform(low: float = 0, high: float = 1) -> Callable[[int], ParamGenerator]:
+        _low = min(low, high)
+        _high = max(low, high)
         return lambda id: ParamGenerator(
             id=id,
             initial_value=None,
             memorizable=False,
-            get_strategy=lambda ctx,_: ctx.random.uniform(low=low, high=high),
+            get_strategy=lambda ctx,_: ctx.random.uniform(low=_low, high=_high),
         )
 
     @staticmethod
@@ -80,8 +82,8 @@ class _Range:
         self._values = values
         self._size = len(values)
         self._p = p
-        self._pmin = pmin
-        self._pmax = pmax
+        self._pmin = min(pmin, pmax)
+        self._pmax = max(pmax, pmin)
         self._generated = None
         self._gen_size = 0
         self._gen_index = -1

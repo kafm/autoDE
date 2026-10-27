@@ -25,8 +25,6 @@ class PostTrainingExperimentTests(unittest.TestCase):
             def evaluate(phenotype, problem):
                 calls.append((phenotype, problem.ndims, problem.seed))
                 return [problem.seed], float(problem.seed)
-            legacy = Path(f"{name}_test.csv")
-            legacy.write_text("legacy results\n")
             with patch("autode.lpsge.experiment_gen_algo.run_auto_de", side_effect=evaluate), \
                  patch("autode.lpsge.experiment_gen_algo.search_optimizer", side_effect=AssertionError):
                 experiment._test(state)
@@ -36,16 +34,15 @@ class PostTrainingExperimentTests(unittest.TestCase):
                 experiment._test(state)
             self.assertEqual(len(calls), 6)
             self.assertEqual([p.seed for p in problems], [7, 7])
-            self.assertEqual(legacy.read_text(), "legacy results\n")
-            seeds = json.loads(Path(f"{name}_F1_test.json").read_text())
+            seeds = json.loads(Path(f"{name}_test.json").read_text())
             self.assertEqual(set(seeds), {"F1_3D", "F1_5D"})
-            with Path(f"{name}_F1_test.csv").open() as file:
+            with Path(f"{name}_test.csv").open() as file:
                 rows = list(csv.DictReader(file))
             self.assertEqual(len(rows), 6)
             for row, (phenotype, dim, seed) in zip(rows, calls):
                 self.assertEqual(phenotype, state.test_algo)
                 self.assertEqual(row["problem"], f"F1_{dim}D")
-                self.assertEqual(row["algo"], "AUTO")
+                self.assertEqual(row["algo"], "AUTO_F1")
                 self.assertEqual(int(row["seed"]), seed)
                 self.assertEqual(seed, seeds[row["problem"]][int(row["no"]) - 1])
 
@@ -67,7 +64,7 @@ class PostTrainingExperimentTests(unittest.TestCase):
             search.assert_called_once()
             self.assertIs(search.call_args.kwargs["problems"], train)
             self.assertEqual(evaluate.call_count, 2)
-            seeds = json.loads(Path(f"{name}_F1_test.json").read_text())
+            seeds = json.loads(Path(f"{name}_test.json").read_text())
             self.assertEqual(set(seeds), {"held_out_10D"})
             for call, seed in zip(evaluate.call_args_list, seeds["held_out_10D"]):
                 self.assertEqual(call.args[0], "generated algorithm")
@@ -78,7 +75,7 @@ class PostTrainingExperimentTests(unittest.TestCase):
                 self.assertIsNot(problem, test[0])
             self.assertEqual([problem.seed for problem in train], [7, 7])
             self.assertEqual(test[0].seed, 11)
-            with Path(f"{name}_F1_test.csv").open() as file:
+            with Path(f"{name}_test.csv").open() as file:
                 rows = list(csv.DictReader(file))
             self.assertEqual([row["problem"] for row in rows], ["held_out_10D"] * 2)
 
@@ -93,7 +90,7 @@ class PostTrainingExperimentTests(unittest.TestCase):
             with patch("autode.lpsge.experiment_gen_algo.run_auto_de") as evaluate:
                 experiment._test(state)
             evaluate.assert_not_called()
-            with Path(f"{name}_F1_test.csv").open() as file:
+            with Path(f"{name}_test.csv").open() as file:
                 self.assertEqual(list(csv.DictReader(file)), [])
 
     def test_training_sets_have_independent_progress_and_algorithms(self):
@@ -108,9 +105,53 @@ class PostTrainingExperimentTests(unittest.TestCase):
                     experiment._test(state)
                 self.assertEqual([call.args[0] for call in evaluate.call_args_list],
                                  ["F1 algorithm"] * 2 + ["F3 algorithm"] * 2)
-            for training_set in ("F1", "F3"):
-                self.assertTrue(Path(f"{name}_{training_set}_test.csv").exists())
-                self.assertTrue(Path(f"{name}_{training_set}_test.json").exists())
+                for training_set in ("F1", "F3"):
+                    state.traning_set = training_set
+                    state.test_algo = training_set + " algorithm"
+                    experiment._test(state)
+                self.assertEqual(evaluate.call_count, 4)
+            with Path(f"{name}_test.csv").open() as file:
+                rows = list(csv.DictReader(file))
+            self.assertEqual([row["algo"] for row in rows],
+                             ["AUTO_F1"] * 2 + ["AUTO_F3"] * 2)
+            seeds = json.loads(Path(f"{name}_test.json").read_text())
+            self.assertEqual(set(seeds), {"F1_3D", "F1_5D", "F3_3D", "F3_5D"})
+            self.assertEqual(len(list(Path(folder).glob("*_test.csv"))), 1)
+            self.assertEqual(len(list(Path(folder).glob("*_test.json"))), 1)
+
+    def test_resume_starts_at_first_incomplete_repetition(self):
+        from autode.experiment.experiment import Experiment as EvaluationExperiment
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "experiment_test.csv"
+            with path.open("w", newline="") as file:
+                writer = csv.writer(file)
+                writer.writerow(["no", "algo", "problem", "solution", "fit", "seed"])
+                for algo, problem, number in (
+                    ("AUTO_F4", "F4_30D", 1), ("AUTO_F4", "F4_50D", 1),
+                    ("AUTO_F19", "F19_30D", 1), ("AUTO_F19", "F19_50D", 1),
+                    ("AUTO_F4", "F4_30D", 2),
+                ):
+                    writer.writerow([number, algo, problem, "[]", 0, number * 10])
+            schedule = {key: [10, 20, 30] for key in
+                        ("F4_30D", "F4_50D", "F19_30D", "F19_50D")}
+            path.with_suffix(".json").write_text(json.dumps(schedule))
+            evaluate = unittest.mock.Mock(return_value=([], 0.))
+            experiment = EvaluationExperiment(
+                str(path), {"AUTO_F4": evaluate},
+                {"F4_30D": 30, "F4_50D": 50}, max_experiments=3,
+                resume_by_pair=True)
+            with patch("builtins.print") as output:
+                experiment.run()
+            self.assertNotIn(unittest.mock.call("Starting sample no 1"), output.call_args_list)
+            self.assertIn(unittest.mock.call("Starting sample no 2"), output.call_args_list)
+            self.assertEqual([(c.args[0], c.kwargs["seed"]) for c in evaluate.call_args_list],
+                             [(50, 20), (30, 30), (50, 30)])
+            experiment._init_csv()
+            self.assertEqual(experiment._num_experiments, 3)
+            experiment._algos = {"AUTO_F19": evaluate}
+            experiment._problems = {"F19_30D": 30, "F19_50D": 50}
+            experiment._init_csv()
+            self.assertEqual(experiment._num_experiments, 1)
 
     def test_training_persists_seed_and_skips_completed_training(self):
         with tempfile.TemporaryDirectory() as folder:

@@ -99,7 +99,7 @@ if __name__ == "__main__":
         problems=get_problems(fnames if fnames != "all" else None, train_ndims, test_ndims),
         parameters_file=parameters_file, 
         popsize=popsize, 
-        max_experiments=1,
+        max_experiments=51,
         pmin = pmin,
         elitesize = elitesize,
         rmethod ="kruns", 

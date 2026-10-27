@@ -40,7 +40,10 @@ test `ProblemInstance.name` accordingly. Every requested problem must have at
 least `max_experiments` seeds. Repetition order is preserved, and all trained
 algorithms share the supplied evaluation schedule. Training seeds are unchanged.
 
-The resolved schedule is saved beside each test CSV. Resuming checks both the
+All training sets append evaluation results to `<name>_test.csv`, with algorithms
+identified as `AUTO_<training_set>`. Their seed schedules are merged into
+`<name>_test.json`. Resuming skips completed algorithm/problem/repetition rows.
+The resolved schedule is saved beside the shared test CSV. Resuming checks both the
 saved schedule and existing CSV seeds; incompatible results require a new
 experiment name. Source files are read without modification. Omitting
 `test_seed_file` retains automatic evaluation-seed generation.

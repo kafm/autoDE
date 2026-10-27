@@ -30,24 +30,32 @@ def save_external_seed_schedule(filename, seeds, problems, count):
     saved = None
     if os.path.exists(seed_filename):
         saved = read_seed_schedule(seed_filename)
-        if set(saved) != set(seeds) or any(
-            values != seeds[key][:len(values)] for key, values in saved.items()
+        if any(
+            saved[key][:min(len(saved[key]), len(values))]
+            != values[:min(len(saved[key]), len(values))]
+            for key, values in seeds.items() if key in saved
         ):
             raise ValueError(f"External seed schedule conflicts with {seed_filename}")
+    merged = dict(saved or {})
+    for key, values in seeds.items():
+        if len(values) >= len(merged.get(key, [])):
+            merged[key] = values
     if os.path.exists(filename):
         with open(filename, newline="") as file:
             for row in csv.DictReader(file):
+                if row["problem"] not in seeds:
+                    continue
                 try:
                     index = int(row["no"]) - 1
                     if index < 0 or int(row["seed"]) != seeds[row["problem"]][index]:
                         raise ValueError
                 except (KeyError, IndexError, TypeError, ValueError) as exc:
                     raise ValueError(f"Existing results conflict with external seeds in {filename}") from exc
-    if saved != seeds:
+    if saved != merged:
         with open(seed_filename, "w", encoding="utf-8") as file:
-            json.dump(seeds, file, indent=2)
+            json.dump(merged, file, indent=2)
             file.write("\n")
-    return seeds
+    return merged
 
 
 def load_seed_schedule(filename, problems, count, nbits=64):

@@ -1,6 +1,5 @@
 from typing import Callable, Optional, Dict, List, Any
 from dataclasses import dataclass, replace
-from urllib.parse import quote
 import os, csv, time
 import tempfile
 import pandas as pd
@@ -248,14 +247,13 @@ class Experiment:
         def evaluate(problem, *, seed):
             return run_auto_de(phenotype, replace(problem, seed=seed))
 
-        # Each training set has its own progress and persisted seed schedule.
-        training_set = quote(str(state.traning_set), safe="")
         state.test_experiment = EvaluationExperiment(
-            filename=f"{self._name}_{training_set}_test.csv",
-            algos={"AUTO": evaluate},
+            filename=f"{self._name}_test.csv",
+            algos={f"AUTO_{state.traning_set}": evaluate},
             problems=problems,
             max_experiments=self._max_experiments,
             seed_schedule=seed_schedule,
+            resume_by_pair=True,
         )
         print(f"[{self._name}] Testing for {state.traning_set}")
         state.test_experiment.run()

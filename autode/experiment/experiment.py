@@ -14,6 +14,7 @@ class Experiment:
         max_experiments: int = 51,
         save_point: int = 1,
         seed_schedule: Dict[str, List[int]] = None,
+        resume_by_pair: bool = False,
     ):
         self._filename = filename
         self._algos = algos
@@ -24,6 +25,8 @@ class Experiment:
         self._num_experiments = 0
         self._seeds: Dict[str, List[int]] = {}
         self._seed_schedule = seed_schedule
+        self._resume_by_pair = resume_by_pair
+        self._completed = set()
 
     def run(self):
         self._init_seeds()
@@ -39,6 +42,8 @@ class Experiment:
             for pname, pfn in self._problems.items():
                 seed = self._seeds[pname][i - 1]
                 for aname, afn in self._algos.items():
+                    if self._resume_by_pair and (i, aname, pname) in self._completed:
+                        continue
                     print(f"Running {aname} for problem {pname}")
                     astart = time.time()
                     solution, fit = afn(pfn, seed=seed)
@@ -96,4 +101,15 @@ class Experiment:
                     os.unlink(temporary_path)
         elif rows and rows[0] != self._headers:
             raise ValueError(f"Unexpected CSV header in {self._filename}")
-        self._num_experiments = 0 if len(rows) < 2 else int(rows[-1][0])
+        if self._resume_by_pair:
+            self._completed = {(int(row[0]), row[1], row[2]) for row in rows[1:]}
+            self._num_experiments = 0
+            pairs = [(aname, pname) for aname in self._algos for pname in self._problems]
+            if pairs:
+                while self._num_experiments < self._max_experiments and all(
+                    (self._num_experiments + 1, aname, pname) in self._completed
+                    for aname, pname in pairs
+                ):
+                    self._num_experiments += 1
+        else:
+            self._num_experiments = 0 if len(rows) < 2 else int(rows[-1][0])
